@@ -74,7 +74,7 @@ install-deps:
 	@[ -d "venv" ] || python3 -m venv venv
 	@echo "$(BLUE)Installing Python dependencies...$(NC)"
 	$(PIP) install --upgrade pip
-	$(PIP) install python-docx
+	$(PIP) install -r requirements.txt
 	@echo "$(GREEN)✅ Python dependencies installed$(NC)"
 	@echo ""
 	@echo "$(BLUE)Installing Node dependencies...$(NC)"
