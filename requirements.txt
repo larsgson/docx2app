@@ -1,0 +1,11 @@
+# Python dependencies for Animal Health Handbook Document Conversion System
+# Install with: pip install -r requirements.txt
+
+# Core document processing
+python-docx>=0.8.11
+
+# Optional: For enhanced image processing (if not using system ImageMagick)
+# Pillow>=10.0.0
+
+# Optional: For future enhancements
+# lxml>=4.9.0
