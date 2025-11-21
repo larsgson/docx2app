@@ -17,7 +17,7 @@ BLUE := \033[0;34m
 YELLOW := \033[0;33m
 NC := \033[0m # No Color
 
-.PHONY: help build clean install-deps check-deps viewer dev clean-all verify setup-libreoffice
+.PHONY: help build clean install-deps check-deps viewer dev clean-all verify setup-libreoffice split-chapters split-markdown
 
 # Default target
 help:
@@ -34,6 +34,10 @@ help:
 	@echo "  $(GREEN)make check-deps$(NC)         - Check if dependencies are installed"
 	@echo "  $(GREEN)make install-deps$(NC)       - Install Python dependencies"
 	@echo "  $(GREEN)make setup-libreoffice$(NC)  - Configure LibreOffice for ImageMagick (macOS)"
+	@echo ""
+	@echo "Reference scripts:"
+	@echo "  $(GREEN)make split-chapters$(NC)     - Split book into DOCX chapter files"
+	@echo "  $(GREEN)make split-markdown$(NC)     - Convert chapters to Markdown format"
 	@echo ""
 	@echo "Quick start:"
 	@echo "  1. make check-deps         # Check if everything is installed"
@@ -110,6 +114,8 @@ clean:
 	@echo "$(BLUE)Cleaning generated files...$(NC)"
 	rm -rf $(JSON_DIR)
 	rm -rf $(VIEWER_PUBLIC)
+	rm -rf markdown_chapters
+	rm -rf chapters
 	@find . -name "*.wmf.backup" -delete
 	@echo "$(GREEN)✅ Cleaned generated files$(NC)"
 
@@ -204,3 +210,20 @@ status:
 	@command -v node >/dev/null 2>&1 && echo "  ✓ Node.js" || echo "  ✗ Node.js"
 	@[ -d "$(VIEWER_DIR)/node_modules" ] && echo "  ✓ Viewer dependencies" || echo "  ✗ Viewer dependencies"
 	@echo ""
+
+# Reference script: Split book into DOCX chapters
+split-chapters:
+	@echo "$(BLUE)Splitting book into DOCX chapter files...$(NC)"
+	@[ -f "$(INPUT_DOCX)" ] || \
+		(echo "$(YELLOW)⚠️  Input file not found: $(INPUT_DOCX)$(NC)" && exit 1)
+	$(PYTHON) split_chapters.py
+	@echo "$(GREEN)✅ Chapter files created in chapters/ directory$(NC)"
+
+# Reference script: Convert chapters to Markdown
+split-markdown:
+	@echo "$(BLUE)Converting book to Markdown format...$(NC)"
+	@[ -f "$(INPUT_DOCX)" ] || \
+		(echo "$(YELLOW)⚠️  Input file not found: $(INPUT_DOCX)$(NC)" && exit 1)
+	$(PYTHON) split_to_md_chapters.py
+	@echo "$(GREEN)✅ Markdown files created in markdown_chapters/ directory$(NC)"
+	@echo "$(CYAN)ℹ️  Open markdown_chapters/README.md to start browsing$(NC)"

@@ -124,9 +124,13 @@ make verify          # Check image integrity and content
 
 ```
 pp-book/
-├── build_book.py                    # Main build system
+├── build_book.py                    # Main build system (JSON output)
+├── split_chapters.py                # Reference: Split to DOCX chapters
+├── split_to_md_chapters.py          # Reference: Split to Markdown chapters
+├── verify_images.py                 # Image verification tool
 ├── Makefile                         # Build automation
 ├── setup_libreoffice.sh             # LibreOffice configuration helper
+├── requirements.txt                 # Python dependencies
 ├── LICENSE                          # GPL-3.0 license
 │
 ├── English HAH Word Apr 6 2024.docx # Source document (not in repo)
@@ -139,6 +143,12 @@ pp-book/
 │       ├── section_XX.json          # Section content
 │       └── pictures/                # Extracted images
 │           └── image_XXXX.png
+│
+├── markdown_chapters/               # Markdown export (optional, not in repo)
+│   ├── README.md                    # Navigation index
+│   └── chapter_XX/                  # Chapter directories
+│       ├── section_X_X.md           # Section content
+│       └── pictures/                # Extracted images
 │
 └── chapter-viewer/                  # React web application
     ├── src/                         # React source code
@@ -294,12 +304,55 @@ make build
 
 ## Advanced Usage
 
+### Reference Scripts
+
+The project includes reference scripts that demonstrate the conversion logic:
+
+#### `split_chapters.py` - Split to DOCX Chapters
+
+Legacy script that splits the book into separate DOCX files per chapter, preserving all formatting, images, and footnotes. Useful for:
+- Creating individual chapter files
+- Manual editing of specific chapters
+- Understanding the document structure
+
+```bash
+python3 split_chapters.py
+# Output: chapters/chapter_01.docx, chapter_02.docx, etc.
+```
+
+#### `split_to_md_chapters.py` - Split to Markdown Chapters
+
+Reference script that converts chapters to Markdown format, demonstrating the same logic as `build_book.py` but generating readable `.md` files instead of JSON. Useful for:
+- Viewing content in any Markdown viewer
+- Understanding the conversion logic
+- Creating documentation or exports
+- Comparing with chapter-viewer output
+
+```bash
+python3 split_to_md_chapters.py
+# Output: markdown_chapters/chapter_01/*.md with images
+```
+
+**Features:**
+- ✅ Preserves text formatting (bold, italic, underline)
+- ✅ Converts tables to Markdown table format
+- ✅ Extracts and references images
+- ✅ Maintains chapter/section structure
+- ✅ Creates navigation indexes
+- ✅ Output viewable in any Markdown viewer
+
+The Markdown output closely matches what you see in the chapter-viewer, making it perfect for:
+- Verifying conversion accuracy
+- Learning how the system processes documents
+- Creating alternative export formats
+- Documentation and archival purposes
+
 ### Custom Document Processing
 
 To process your own Word document:
 
 1. Place your `.docx` file in the project root
-2. Update `INPUT_DOCX` in `build_book.py`
+2. Update `INPUT_DOCX` in `build_book.py` (or reference scripts)
 3. Adjust chapter detection patterns if needed (see `is_chapter_heading()`)
 4. Run `make rebuild-all`
 
@@ -323,7 +376,16 @@ After build, check:
 
 - **[JSON_OPTIMIZATION_GUIDE.md](JSON_OPTIMIZATION_GUIDE.md)** - Optimization details
 - **[WMF_CONVERSION_GUIDE.md](WMF_CONVERSION_GUIDE.md)** - Image conversion guide
+- **[MARKDOWN_EXPORT_GUIDE.md](MARKDOWN_EXPORT_GUIDE.md)** - Markdown export reference guide
 - **[chapter-viewer/README.md](chapter-viewer/README.md)** - Web viewer documentation
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
+
+### Reference Scripts
+
+- **[split_chapters.py](split_chapters.py)** - Split book into DOCX chapter files
+- **[split_to_md_chapters.py](split_to_md_chapters.py)** - Convert chapters to Markdown format
+- **[build_book.py](build_book.py)** - Main build system (JSON output)
+- **[verify_images.py](verify_images.py)** - Image verification tool
 
 ## Contributing
 
