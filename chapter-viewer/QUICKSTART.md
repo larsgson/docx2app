@@ -152,4 +152,4 @@ For issues or questions:
 - Check print preview
 - Bookmark your favorites
 
-Enjoy reading the Animal Health Handbook! 📚
+Enjoy reading! 📚

@@ -1,12 +1,12 @@
-# Makefile for Animal Health Handbook Book Builder
-# ==================================================
+# Makefile for Document Conversion System
+# ========================================
 # This Makefile provides convenient commands for building and managing
 # the book content for the chapter-viewer React application.
 
 # Variables
 PYTHON := ./venv/bin/python3
 PIP := ./venv/bin/pip
-INPUT_DOCX := English\ HAH\ Word\ Apr\ 6\ 2024.docx
+INPUT_DOCX := original-book.docx
 JSON_DIR := chapter-viewer/book_content_json
 VIEWER_DIR := chapter-viewer
 VIEWER_PUBLIC := $(VIEWER_DIR)/public/book_content_json
@@ -17,12 +17,12 @@ BLUE := \033[0;34m
 YELLOW := \033[0;33m
 NC := \033[0m # No Color
 
-.PHONY: help build clean install-deps check-deps viewer dev clean-all verify setup-libreoffice split-chapters split-markdown
+.PHONY: help build clean install-deps check-deps viewer dev clean-all verify setup-libreoffice
 
 # Default target
 help:
-	@echo "$(BLUE)Animal Health Handbook - Build System$(NC)"
-	@echo "======================================"
+	@echo "$(BLUE)Document Conversion System - Build System$(NC)"
+	@echo "=============================================="
 	@echo ""
 	@echo "Available targets:"
 	@echo "  $(GREEN)make build$(NC)              - Build complete book content (all steps)"
@@ -34,10 +34,6 @@ help:
 	@echo "  $(GREEN)make check-deps$(NC)         - Check if dependencies are installed"
 	@echo "  $(GREEN)make install-deps$(NC)       - Install Python dependencies"
 	@echo "  $(GREEN)make setup-libreoffice$(NC)  - Configure LibreOffice for ImageMagick (macOS)"
-	@echo ""
-	@echo "Reference scripts:"
-	@echo "  $(GREEN)make split-chapters$(NC)     - Split book into DOCX chapter files"
-	@echo "  $(GREEN)make split-markdown$(NC)     - Convert chapters to Markdown format"
 	@echo ""
 	@echo "Quick start:"
 	@echo "  1. make check-deps         # Check if everything is installed"
@@ -99,11 +95,12 @@ install-deps:
 build: check-deps
 	@echo "$(BLUE)Building complete book content...$(NC)"
 	@echo "This will:"
-	@echo "  1. Convert Word document directly to JSON with images"
-	@echo "  2. Optimize JSON files (remove common defaults)"
-	@echo "  3. Convert WMF images to PNG format"
-	@echo "  4. Copy content to chapter-viewer"
-	@echo "  5. Build index file"
+	@echo "  1. Extract TOC from document (409 entries)"
+	@echo "  2. Parse chapters and sections with TOC validation"
+	@echo "  3. Extract content with formatting and tables"
+	@echo "  4. Handle headers in table cells"
+	@echo "  5. Convert WMF images to PNG format"
+	@echo "  6. Generate JSON files for chapter-viewer"
 	@echo ""
 	@test -f $(INPUT_DOCX) || (echo "$(YELLOW)⚠️  Input file not found: $(INPUT_DOCX)$(NC)" && exit 1)
 	$(PYTHON) build_book.py
@@ -211,20 +208,3 @@ status:
 	@command -v node >/dev/null 2>&1 && echo "  ✓ Node.js" || echo "  ✗ Node.js"
 	@[ -d "$(VIEWER_DIR)/node_modules" ] && echo "  ✓ Viewer dependencies" || echo "  ✗ Viewer dependencies"
 	@echo ""
-
-# Reference script: Split book into DOCX chapters
-split-chapters:
-	@echo "$(BLUE)Splitting book into DOCX chapter files...$(NC)"
-	@test -f $(INPUT_DOCX) || \
-		(echo "$(YELLOW)⚠️  Input file not found: $(INPUT_DOCX)$(NC)" && exit 1)
-	$(PYTHON) split_chapters.py
-	@echo "$(GREEN)✅ Chapter files created in chapters/ directory$(NC)"
-
-# Reference script: Convert chapters to Markdown
-split-markdown:
-	@echo "$(BLUE)Converting book to Markdown format...$(NC)"
-	@test -f $(INPUT_DOCX) || \
-		(echo "$(YELLOW)⚠️  Input file not found: $(INPUT_DOCX)$(NC)" && exit 1)
-	$(PYTHON) split_to_md_chapters.py
-	@echo "$(GREEN)✅ Markdown files created in markdown_chapters/ directory$(NC)"
-	@echo "$(CYAN)ℹ️  Open markdown_chapters/README.md to start browsing$(NC)"

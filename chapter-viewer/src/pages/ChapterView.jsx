@@ -61,7 +61,10 @@ function ChapterView({ index, expandedChapter, setExpandedChapter }) {
       });
   }, [sectionKey, currentSection]);
 
-  const { content, loading, error } = dataState;
+  const { content, loading, error, key: contentKey } = dataState;
+
+  // Check if content matches current section to prevent rendering stale content
+  const isContentValid = contentKey === sectionKey && content !== null;
 
   // Auto-expand chapter in sidebar (only if not already expanded)
   useEffect(() => {
@@ -230,7 +233,7 @@ function ChapterView({ index, expandedChapter, setExpandedChapter }) {
     );
   }
 
-  if (loading || !content) {
+  if (loading || !isContentValid) {
     return (
       <div className="chapter-loading">
         <div className="spinner"></div>
@@ -285,7 +288,8 @@ function ChapterView({ index, expandedChapter, setExpandedChapter }) {
 
         {/* Section content */}
         <div className="chapter-content">
-          {content.content &&
+          {isContentValid &&
+            content.content &&
             content.content.map((item, index) => (
               <ContentItem key={index} item={item} chapterNum={chapterNum} />
             ))}
@@ -348,8 +352,41 @@ function ContentItem({ item, chapterNum }) {
     return <ParagraphContent item={item} chapterNum={chapterNum} />;
   } else if (item.type === "table") {
     return <TableContent item={item} />;
+  } else if (item.type === "image") {
+    return <ImageContent item={item} chapterNum={chapterNum} />;
+  } else if (item.type === "table_cell_header") {
+    return <TableCellHeaderContent item={item} />;
   }
   return null;
+}
+
+function ImageContent({ item, chapterNum }) {
+  const imagePath = item.path
+    ? `/book_content_json/chapter_${String(chapterNum).padStart(2, "0")}/${item.path}`
+    : `/book_content_json/chapter_${String(chapterNum).padStart(2, "0")}/pictures/${item.filename}`;
+
+  // Log for debugging image path issues
+  if (!item.path && !item.filename) {
+    console.warn("Image item missing path and filename:", item);
+  }
+
+  return (
+    <div className="content-image">
+      <ImageWithRetry
+        imagePath={imagePath}
+        img={item}
+        chapterNum={chapterNum}
+      />
+    </div>
+  );
+}
+
+function TableCellHeaderContent({ item }) {
+  return (
+    <div className="content-table-cell-header">
+      <div className="table-cell-header-text">{item.text}</div>
+    </div>
+  );
 }
 
 function ParagraphContent({ item, chapterNum }) {
@@ -420,7 +457,14 @@ function ParagraphContent({ item, chapterNum }) {
               ? `/book_content_json/chapter_${String(chapterNum).padStart(2, "0")}/${img.path}`
               : `/book_content_json/chapter_${String(chapterNum).padStart(2, "0")}/pictures/${img.filename}`;
 
-            return <ImageWithRetry key={idx} imagePath={imagePath} img={img} />;
+            return (
+              <ImageWithRetry
+                key={idx}
+                imagePath={imagePath}
+                img={img}
+                chapterNum={chapterNum}
+              />
+            );
           })}
         </div>
       )}
@@ -428,14 +472,17 @@ function ParagraphContent({ item, chapterNum }) {
   );
 }
 
-function ImageWithRetry({ imagePath, img }) {
+function ImageWithRetry({ imagePath, img, chapterNum }) {
   const [retryCount, setRetryCount] = useState(0);
   const [imageKey, setImageKey] = useState(0);
+  const [showFallback, setShowFallback] = useState(false);
   const maxRetries = 2;
 
   const handleImageError = (e) => {
     console.error("Image load error:", {
       filename: img.filename,
+      index: img.index,
+      chapterNum: chapterNum,
       attemptedPath: imagePath,
       fullUrl: e.target.src,
       retryCount: retryCount,
@@ -451,14 +498,30 @@ function ImageWithRetry({ imagePath, img }) {
         500 * (retryCount + 1),
       ); // Increasing delay: 500ms, 1000ms
     } else {
-      // After max retries, hide the image
-      e.target.style.display = "none";
-      const container = e.target.closest(".image-container");
-      if (container) {
-        container.style.display = "none";
-      }
+      // After max retries, show fallback
+      setShowFallback(true);
+      console.error("Image failed after all retries:", {
+        filename: img.filename,
+        index: img.index,
+        path: imagePath,
+      });
     }
   };
+
+  if (showFallback) {
+    return (
+      <div className="image-container image-error">
+        <div className="image-fallback">
+          <div className="image-error-icon">⚠️</div>
+          <div className="image-error-text">
+            <strong>Image not available</strong>
+            <br />
+            <small>{img.filename || `Image ${img.index}`}</small>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="image-container">
@@ -468,6 +531,7 @@ function ImageWithRetry({ imagePath, img }) {
         alt={img.description || `Image ${img.index}`}
         className="chapter-image"
         onError={handleImageError}
+        loading="lazy"
       />
       {img.description && <p className="image-caption">{img.description}</p>}
     </div>

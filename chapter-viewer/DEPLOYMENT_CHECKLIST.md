@@ -1,4 +1,4 @@
-# Deployment Checklist - Animal Health Handbook Chapter Viewer
+# Deployment Checklist - Chapter Viewer
 
 ## Pre-Deployment Checklist
 

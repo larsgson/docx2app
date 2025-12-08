@@ -4,7 +4,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Node.js](https://img.shields.io/badge/node.js-16+-green.svg)](https://nodejs.org/)
 
-A comprehensive automated system to convert Microsoft Word documents into an interactive web-based reader with JSON content backend. Originally created for the Animal Health Handbook, this system can be adapted for any large document with chapter/section structure.
+A comprehensive automated system to convert Microsoft Word documents into an interactive web-based reader with JSON content backend. This system can be adapted for any large document with chapter/section structure.
 
 ## 🎯 Standalone Chapter Viewer
 
@@ -73,12 +73,26 @@ This makes it perfect for:
 - 🚀 **One-command build** - Single `make build` converts entire document
 - 📚 **Smart chapter detection** - Automatically identifies chapters and sections
 - 🖼️ **Image extraction** - Extracts all images including WMF conversion
-- 📊 **Table processing** - Preserves complex table structures
+- 📊 **Table processing** - Preserves complex table structures including headers in cells
 - 🎨 **Format preservation** - Maintains bold, italic, fonts, alignment
-- 📦 **47% size optimization** - Intelligent removal of redundant data
-- ✅ **TOC validation** - Cross-references table of contents with actual content
+- ✅ **TOC validation** - Automatically extracts and validates table of contents
+- 📝 **Dual output format** - Generates both JSON and Markdown simultaneously
 - 🔍 **Verification tools** - Built-in integrity checking
 - 📱 **React web viewer** - Responsive mobile-friendly interface
+
+## ⚠️ Document Preparation (CRITICAL FIRST STEP!)
+
+**You MUST convert automatic numbering to fixed text before processing.**
+
+Automatic numbering in Word/LibreOffice stores section numbers (like "3.1", "4.2.3") invisibly in the document's internal structure. This causes missing sections and failed TOC validation.
+
+**Quick Fix:**
+- **LibreOffice:** Select All → Format → Lists → No List → Save
+- **Word:** Select All → Ctrl+Shift+N → Numbering → None → Save
+
+**📖 See [DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md) for detailed instructions, verification steps, and troubleshooting.**
+
+---
 
 ## Quick Start
 
@@ -136,11 +150,11 @@ This creates a symlink so ImageMagick can access LibreOffice.
 ```
 Word Document
     ↓
-1. Extract chapters & sections
-2. Parse text with formatting
-3. Extract images (WMF → PNG)
-4. Process tables
-5. Optimize JSON (47% reduction)
+1. Extract TOC automatically
+2. Extract chapters & sections with TOC validation
+3. Parse text with formatting
+4. Extract images (WMF → PNG)
+5. Process tables (including headers in cells)
 6. Build navigation index
     ↓
 Interactive Web Viewer
@@ -148,12 +162,12 @@ Interactive Web Viewer
 
 ### Detailed Steps
 
-1. **Chapter Detection** - Identifies chapters by N.0 headings (e.g., "1.0 Health")
-2. **Section Splitting** - Subdivides chapters into N.X sections (e.g., "1.1", "1.2")
-3. **TOC Extraction** - Extracts and validates Table of Contents
-4. **Content Parsing** - Preserves formatting, images, tables, footnotes
-5. **WMF Conversion** - Converts Windows Metafiles to PNG via LibreOffice → PDF → PNG
-6. **JSON Optimization** - Removes empty arrays, objects, default values
+1. **TOC Extraction** - Automatically extracts Table of Contents from document
+2. **Chapter Detection** - Identifies chapters by N.0 headings (e.g., "1.0 Introduction")
+3. **Section Parsing** - Subdivides chapters into N.X sections (e.g., "1.1", "1.2")
+4. **Content Extraction** - Preserves formatting, images, tables, footnotes
+5. **Table Cell Headers** - Detects and processes section headers inside table cells
+6. **WMF Conversion** - Converts Windows Metafiles to PNG via LibreOffice → PDF → PNG
 7. **Index Building** - Creates navigation structure with statistics
 
 ## Usage
@@ -187,15 +201,13 @@ make verify          # Check image integrity and content
 ```
 project-root/
 ├── build_book.py                    # Main build system (JSON output)
-├── split_chapters.py                # Reference: Split to DOCX chapters
-├── split_to_md_chapters.py          # Reference: Split to Markdown chapters
 ├── verify_images.py                 # Image verification tool
 ├── Makefile                         # Build automation
 ├── setup_libreoffice.sh             # LibreOffice configuration helper
 ├── requirements.txt                 # Python dependencies
 ├── LICENSE                          # GPL-3.0 license
 │
-├── English HAH Word Apr 6 2024.docx # Source document (not in repo)
+├── original-book.docx               # Source document (not in repo)
 │
 ├── markdown_chapters/               # Markdown export (optional, not in repo)
 │   ├── README.md                    # Navigation index
@@ -226,7 +238,7 @@ Each section file contains:
 ```json
 {
   "chapter_number": 1,
-  "chapter_title": "1.0 HEALTH & DISEASE",
+  "chapter_title": "1.0 FIRST CHAPTER",
   "content": [
     {
       "type": "paragraph",
@@ -259,28 +271,15 @@ Each section file contains:
 Handles both standard chapters (N.0 format) and appendix-style chapters (starting with N.1):
 
 - **Regular chapters:** Start with N.0 heading (e.g., "1.0 Introduction")
-- **Appendix chapters:** Start with N.1 section (e.g., "24.1 Infectious Diseases")
-- **29 total chapters** fully detected and processed
+- **Appendix chapters:** Start with N.1 section (e.g., "24.1 First Section")
 
 ### TOC Validation System
 
-- Extracts entire Table of Contents (433 entries)
+- Extracts entire Table of Contents 
 - Excludes TOC paragraphs from actual content
 - Cross-validates TOC against actual content
 - Generates detailed discrepancy report
 - Uses actual content titles as source of truth
-
-### JSON Optimization
-
-Achieves 47% file size reduction by removing:
-- Empty arrays: `"images": []`, `"footnotes": []`
-- Empty objects: `"formatting": {}`
-- Empty text runs
-- Common defaults: `"bold": false`, `"italic": false`
-
-**Result:** 12.8 MB → 6.8 MB (6 MB savings)
-
-
 
 ### WMF Image Conversion
 
@@ -290,32 +289,31 @@ Automatically converts Windows Metafile images using the conversion chain:
 WMF → LibreOffice → PDF → Ghostscript → PNG
 ```
 
-Handles 35 WMF images (~3% of 1,066 total images).
+This ensures all images are properly displayed in modern web browsers.
+
+### Table Cell Header Support
+
+The system detects and processes section headers that appear inside table cells, maintaining proper chapter/section hierarchy even when headers are embedded in complex table layouts.
 
 ## Configuration
 
 Edit `build_book.py` to customize:
 
 ```python
-INPUT_DOCX = "Your-Document.docx"
-JSON_DIR = "book_content_json"
-ENABLE_OPTIMIZATION = True          # JSON optimization
-ENABLE_TOC_VALIDATION = True        # TOC validation
+INPUT_DOCX = "original-book.docx"
+JSON_DIR = "chapter-viewer/book_content_json"
+EXCEPTIONS_FILE = "conf/exceptions.conf"
 ```
 
-## Build Statistics
+## Build Process
 
-Typical results for Animal Health Handbook:
+The build system provides real-time feedback showing:
 
-| Metric | Value |
-|--------|-------|
-| Chapters | 29 (100% detected) |
-| Sections | 416 |
-| Paragraphs | 12,389 |
-| Tables | 70 |
-| Images | 1,066 (35 WMF converted) |
-| JSON Size | 6.8 MB (47% optimized) |
-| Build Time | ~90-100 seconds |
+- Number of TOC entries extracted
+- Chapters and sections detected
+- Paragraphs and tables processed
+- Images extracted and converted
+- Build completion time
 
 ## Troubleshooting
 
@@ -365,86 +363,64 @@ make build
 
 ## Advanced Usage
 
-### Reference Scripts
+### TOC Extraction
 
-The project includes reference scripts that demonstrate the conversion logic:
-
-#### `split_chapters.py` - Split to DOCX Chapters
-
-Legacy script that splits the book into separate DOCX files per chapter, preserving all formatting, images, and footnotes. Useful for:
-- Creating individual chapter files
-- Manual editing of specific chapters
-- Understanding the document structure
+The system automatically extracts the Table of Contents directly from the document during the build process:
 
 ```bash
-python3 split_chapters.py
-# Output: chapters/chapter_01.docx, chapter_02.docx, etc.
-```
-
-#### `split_to_md_chapters.py` - Split to Markdown Chapters
-
-Reference script that converts chapters to Markdown format, demonstrating the same logic as `build_book.py` but generating readable `.md` files instead of JSON. Useful for:
-- Viewing content in any Markdown viewer
-- Understanding the conversion logic
-- Creating documentation or exports
-- Comparing with chapter-viewer output
-
-```bash
-python3 split_to_md_chapters.py
-# Output: markdown_chapters/chapter_01/*.md with images
+# TOC is automatically extracted during build
+make build
+# TOC structure is extracted internally and used for validation
 ```
 
 **Features:**
-- ✅ Preserves text formatting (bold, italic, underline)
-- ✅ Converts tables to Markdown table format
-- ✅ Extracts and references images
-- ✅ Maintains chapter/section structure
-- ✅ Creates navigation indexes
-- ✅ Output viewable in any Markdown viewer
-
-The Markdown output closely matches what you see in the chapter-viewer, making it perfect for:
-- Verifying conversion accuracy
-- Learning how the system processes documents
-- Creating alternative export formats
-- Documentation and archival purposes
+- ✅ Automatically extracts all TOC entries from document
+- ✅ Handles extra spaces in numbering (e.g., "3. 1", "21. 2")
+- ✅ Supports Unicode smart quotes in titles
+- ✅ Filters out false positives (dosages, measurements)
+- ✅ Validates section headers against TOC during parsing
+- ✅ Handles headers inside table cells
 
 ### Custom Document Processing
 
 To process your own Word document:
 
-1. Place your `.docx` file in the project root
-2. Update `INPUT_DOCX` in `build_book.py` (or reference scripts)
-3. Adjust chapter detection patterns if needed (see `is_chapter_heading()`)
-4. Run `make rebuild-all`
+1. **Prepare your document** - Convert automatic numbering to fixed text (see [DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md))
+2. Place your `.docx` file in the project root
+3. Name the book "original-book.docx" or else update `INPUT_DOCX` in `build_book.py`
+4. Create `conf/exceptions.conf` if you have known numbering errors
+5. Run `make rebuild-all`
 
-### Disabling Optimization
+### Exception Handling
 
-For debugging or compatibility:
+If your document has known numbering inconsistencies, create `conf/exceptions.conf`:
 
-```python
-# In build_book.py
-ENABLE_OPTIMIZATION = False
-ENABLE_TOC_VALIDATION = False
+```
+# Format: wrong_number = correct_number
+10.7.7 = 10.7.5
+10.7.8 = 10.7.6
+21.4.3 = 21.2.3
 ```
 
-### Accessing Validation Reports
+The system will automatically correct these during parsing.
+
+### Accessing Build Reports
 
 After build, check:
-- `chapter-viewer/book_content_json/toc_validation_report.json` - TOC discrepancies
-- `chapter-viewer/book_content_json/toc_structure.json` - Extracted TOC
+- Console output shows TOC extraction and validation statistics
+- Build process reports number of TOC entries extracted and numbered entries found
 
 ## Documentation
 
+- **[DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md)** - ⚠️ **START HERE** - Document preparation (convert automatic numbering)
 - **[WMF_CONVERSION_GUIDE.md](WMF_CONVERSION_GUIDE.md)** - Image conversion guide
-- **[MARKDOWN_EXPORT_GUIDE.md](MARKDOWN_EXPORT_GUIDE.md)** - Markdown export reference guide
+- **[MARKDOWN_GENERATION.md](MARKDOWN_GENERATION.md)** - Markdown output feature guide
 - **[chapter-viewer/README.md](chapter-viewer/README.md)** - Web viewer documentation
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
 
-### Reference Scripts
+### Main Scripts
 
-- **[split_chapters.py](split_chapters.py)** - Split book into DOCX chapter files
-- **[split_to_md_chapters.py](split_to_md_chapters.py)** - Convert chapters to Markdown format
-- **[build_book.py](build_book.py)** - Main build system (JSON output)
+- **[build_book.py](build_book.py)** - Main build system with integrated TOC extraction
 - **[verify_images.py](verify_images.py)** - Image verification tool
 
 ## Contributing
@@ -475,10 +451,6 @@ Under the conditions:
 
 See [LICENSE](LICENSE) file for full details.
 
-## Authors
-
-- Original development for Animal Health Handbook document conversion
-- Authors: Dr. Peter Quesenberry and Dr. Maureen Birmingham (original handbook)
 
 ## Acknowledgments
 
@@ -505,11 +477,11 @@ Potential future enhancements:
 - [ ] Support for more document formats (PDF, EPUB input)
 - [ ] Full-text search in viewer
 - [ ] Export to EPUB/PDF from JSON
-- [ ] More aggressive image optimization
+- [ ] Image optimization options
 - [ ] Multi-language support
 - [ ] Cloud deployment guides
 - [ ] Docker containerization
 
 ---
 
-**Note:** This repository does not include the source Word document or generated content. You'll need to provide your own document to process.
+**Note:** This repository does not include source Word documents or generated content. You'll need to provide your own document to process.

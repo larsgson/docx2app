@@ -1,4 +1,4 @@
-# Visual Guide - Animal Health Handbook Chapter Viewer
+# Visual Guide - Chapter Viewer
 
 This guide describes the visual layout and user interface of the application.
 
@@ -107,14 +107,14 @@ This guide describes the visual layout and user interface of the application.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                                                              │
-│              Animal Health Handbook                          │
-│     A comprehensive guide to livestock health and disease    │
+│              Your Book Title                                 │
+│     A comprehensive guide or description                     │
 │                                                              │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
 │  │ CHAPTER 1│  │ CHAPTER 2│  │ CHAPTER 3│  │ CHAPTER 4│   │
 │  │          │  │          │  │          │  │          │   │
-│  │ Health & │  │ Restraint│  │ Clinical │  │ Principl │   │
-│  │ Disease  │  │ Handling │  │ Exam...  │  │ Treatmnt │   │
+│  │ First    │  │ Second   │  │ Third    │  │ Fourth   │   │
+│  │ Chapter  │  │ Chapter  │  │ Chapter  │  │ Chapter  │   │
 │  │       →  │  │       →  │  │       →  │  │       →  │   │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
 │                                                              │
@@ -138,9 +138,9 @@ This guide describes the visual layout and user interface of the application.
 │  │ ☰ │                        │
 │  └───┘                        │
 │                                │
-│    Animal Health Handbook      │
-│  A comprehensive guide to      │
-│  livestock health...           │
+│    Your Book Title             │
+│  A comprehensive guide or      │
+│  description...                │
 │                                │
 │  ┌──────────────────────────┐ │
 │  │ CHAPTER 1                │ │

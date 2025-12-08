@@ -40,6 +40,8 @@ markdown_chapters/
 chapters/
 *.docx
 *.doc
+!sample-book.docx
+original-book.docx
 
 # Chapter Viewer Build
 chapter-viewer/dist/
