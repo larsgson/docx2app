@@ -1,0 +1,32 @@
+# Book Configuration for md2rag Export
+# Copy this file to book_config.toml and customize for your book.
+#
+# If this file is not present, the build script will attempt to extract
+# metadata from the DOCX file and auto-generate missing fields.
+
+# Unique identifier for the book (used in cross-references between books)
+# Should be URL-friendly: lowercase, hyphens instead of spaces
+# Example: "my-book-title"
+canonical_id = ""
+
+# ISO 639-2 language code (eng, fra, spa, deu, por, etc.)
+language = "eng"
+
+# Book title (if not set, extracted from DOCX metadata)
+# Example: "My Book Title"
+title = ""
+
+# Is this the original language version?
+is_original = true
+
+# Original language code (only needed if is_original = false)
+# Uncomment and set this for translations:
+# original_language = "eng"
+
+# Where to store pictures in the output structure.
+# Options:
+#   "root"    - pictures/ folder at root level (sibling to language folders)
+#   "book"    - pictures/ folder inside each book folder
+#   "chapter" - pictures/ folder inside each chapter folder
+# Default: "root"
+pictures_location = "root"

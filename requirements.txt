@@ -1,4 +1,4 @@
-# Python dependencies for Animal Health Handbook Document Conversion System
+# Python dependencies for docx2app - Document to JSON Converter
 # Install with: pip install -r requirements.txt
 
 # Core document processing

@@ -1,15 +1,12 @@
-# Makefile for Document Conversion System
-# ========================================
-# This Makefile provides convenient commands for building and managing
-# the book content for the chapter-viewer React application.
+# Makefile for docx2app - Document to JSON Converter
+# ==================================================
 
 # Variables
 PYTHON := ./venv/bin/python3
 PIP := ./venv/bin/pip
 INPUT_DOCX := original-book.docx
-JSON_DIR := chapter-viewer/book_content_json
-VIEWER_DIR := chapter-viewer
-VIEWER_PUBLIC := $(VIEWER_DIR)/public/book_content_json
+EXPORT_DIR := export
+MARKDOWN_DIR := export_md
 
 # Colors for output
 GREEN := \033[0;32m
@@ -17,29 +14,33 @@ BLUE := \033[0;34m
 YELLOW := \033[0;33m
 NC := \033[0m # No Color
 
-.PHONY: help build clean install-deps check-deps viewer dev clean-all verify setup-libreoffice
+.PHONY: help build clean install-deps check-deps verify setup-libreoffice status stats rebuild rebuild-all
 
 # Default target
 help:
-	@echo "$(BLUE)Document Conversion System - Build System$(NC)"
-	@echo "=============================================="
+	@echo "$(BLUE)docx2app - Document to JSON Converter$(NC)"
+	@echo "======================================="
 	@echo ""
 	@echo "Available targets:"
-	@echo "  $(GREEN)make build$(NC)              - Build complete book content (all steps)"
+	@echo "  $(GREEN)make build$(NC)              - Build complete book content"
 	@echo "  $(GREEN)make clean$(NC)              - Clean generated files"
-	@echo "  $(GREEN)make clean-all$(NC)          - Clean everything (same as clean)"
-	@echo "  $(GREEN)make viewer$(NC)             - Start chapter-viewer dev server"
-	@echo "  $(GREEN)make dev$(NC)                - Build and start viewer"
+	@echo "  $(GREEN)make rebuild-all$(NC)        - Clean and rebuild from scratch"
 	@echo "  $(GREEN)make verify$(NC)             - Verify all images and content"
 	@echo "  $(GREEN)make check-deps$(NC)         - Check if dependencies are installed"
 	@echo "  $(GREEN)make install-deps$(NC)       - Install Python dependencies"
 	@echo "  $(GREEN)make setup-libreoffice$(NC)  - Configure LibreOffice for ImageMagick (macOS)"
+	@echo "  $(GREEN)make status$(NC)             - Show project status"
+	@echo "  $(GREEN)make stats$(NC)              - Show content statistics"
 	@echo ""
 	@echo "Quick start:"
-	@echo "  1. make check-deps         # Check if everything is installed"
-	@echo "  2. make setup-libreoffice  # Configure LibreOffice (if needed for WMF images)"
+	@echo "  1. make install-deps       # Install dependencies"
+	@echo "  2. make check-deps         # Verify everything is ready"
 	@echo "  3. make build              # Build the book content"
-	@echo "  4. make viewer             # Start the web viewer"
+	@echo ""
+	@echo "Output:"
+	@echo "  - JSON content: $(EXPORT_DIR)/{lang}/{book_id}/"
+	@echo "  - Pictures:     $(EXPORT_DIR)/pictures/{lang}/{book_id}/"
+	@echo "  - Markdown:     $(MARKDOWN_DIR)/"
 	@echo ""
 
 # Check if all dependencies are installed
@@ -49,17 +50,15 @@ check-deps:
 		(echo "$(YELLOW)⚠️  Virtual environment not found. Run: make install-deps$(NC)" && exit 1)
 	@$(PYTHON) -c "import docx" 2>/dev/null || \
 		(echo "$(YELLOW)⚠️  python-docx not installed. Run: make install-deps$(NC)" && exit 1)
-	@command -v convert >/dev/null 2>&1 || \
+	@command -v convert >/dev/null 2>&1 || command -v magick >/dev/null 2>&1 || \
 		(echo "$(YELLOW)⚠️  ImageMagick not installed. Run: brew install imagemagick$(NC)" && exit 1)
-	@command -v node >/dev/null 2>&1 || \
-		(echo "$(YELLOW)⚠️  Node.js not found$(NC)" && exit 1)
-	@[ -d "$(VIEWER_DIR)/node_modules" ] || \
-		(echo "$(YELLOW)⚠️  Viewer dependencies not installed. Run: cd $(VIEWER_DIR) && npm install$(NC)" && exit 1)
-	@echo "$(GREEN)✅ All dependencies are installed$(NC)"
+	@command -v gs >/dev/null 2>&1 || \
+		(echo "$(YELLOW)⚠️  Ghostscript not installed. Run: brew install ghostscript$(NC)" && exit 1)
+	@echo "$(GREEN)✅ Core dependencies are installed$(NC)"
 	@echo ""
 	@echo "$(BLUE)Checking LibreOffice accessibility...$(NC)"
 	@if [ -f "/Applications/LibreOffice.app/Contents/MacOS/soffice" ] && ! command -v libreoffice >/dev/null 2>&1; then \
-		echo "$(YELLOW)⚠️  LibreOffice is installed but not accessible to ImageMagick$(NC)"; \
+		echo "$(YELLOW)⚠️  LibreOffice is installed but not accessible$(NC)"; \
 		echo "$(YELLOW)   Run: make setup-libreoffice$(NC)"; \
 	elif command -v libreoffice >/dev/null 2>&1; then \
 		echo "$(GREEN)✅ LibreOffice is accessible$(NC)"; \
@@ -77,63 +76,40 @@ install-deps:
 	$(PIP) install -r requirements.txt
 	@echo "$(GREEN)✅ Python dependencies installed$(NC)"
 	@echo ""
-	@echo "$(BLUE)Installing Node dependencies...$(NC)"
-	cd $(VIEWER_DIR) && npm install
-	@echo "$(GREEN)✅ Node dependencies installed$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Note: Install ImageMagick and Ghostscript separately:$(NC)"
+	@echo "$(YELLOW)Note: Install system dependencies separately:$(NC)"
 	@echo "  macOS:  brew install imagemagick ghostscript"
-	@echo "  Linux:  sudo apt-get install imagemagick ghostscript"
+	@echo "          brew install --cask libreoffice"
+	@echo "  Linux:  sudo apt-get install imagemagick ghostscript libreoffice"
 	@echo ""
-	@echo "$(YELLOW)For WMF image conversion support (all 3 required):$(NC)"
-	@echo "  1. Install ImageMagick: brew install imagemagick"
-	@echo "  2. Install Ghostscript: brew install ghostscript"
-	@echo "  3. Install LibreOffice: brew install --cask libreoffice"
-	@echo "  4. Configure it: make setup-libreoffice"
+	@echo "$(YELLOW)For WMF image conversion on macOS, also run:$(NC)"
+	@echo "  make setup-libreoffice"
 
 # Build everything from the Word document
-build: check-deps
-	@echo "$(BLUE)Building complete book content...$(NC)"
-	@echo "This will:"
-	@echo "  1. Extract TOC from document (409 entries)"
-	@echo "  2. Parse chapters and sections with TOC validation"
-	@echo "  3. Extract content with formatting and tables"
-	@echo "  4. Handle headers in table cells"
-	@echo "  5. Convert WMF images to PNG format"
-	@echo "  6. Generate JSON files for chapter-viewer"
+build:
+	@echo "$(BLUE)Building book content...$(NC)"
 	@echo ""
 	@test -f $(INPUT_DOCX) || (echo "$(YELLOW)⚠️  Input file not found: $(INPUT_DOCX)$(NC)" && exit 1)
 	$(PYTHON) build_book.py
 	@echo ""
 	@echo "$(GREEN)✅ Build complete!$(NC)"
+	@echo "$(GREEN)   JSON:     $(EXPORT_DIR)/{lang}/{book_id}/$(NC)"
+	@echo "$(GREEN)   Pictures: $(EXPORT_DIR)/pictures/$(NC)"
+	@echo "$(GREEN)   Markdown: $(MARKDOWN_DIR)/$(NC)"
 
 # Clean generated files
 clean:
 	@echo "$(BLUE)Cleaning generated files...$(NC)"
-	rm -rf $(JSON_DIR)
-	rm -rf $(VIEWER_PUBLIC)
+	rm -rf $(EXPORT_DIR)
+	rm -rf $(MARKDOWN_DIR)
 	rm -rf markdown_chapters
 	rm -rf chapters
-	@find . -name "*.wmf.backup" -delete
+	@find . -name "*.wmf.backup" -delete 2>/dev/null || true
 	@echo "$(GREEN)✅ Cleaned generated files$(NC)"
-
-# Clean everything (same as clean now)
-clean-all: clean
-
-# Start the chapter-viewer development server
-viewer:
-	@echo "$(BLUE)Starting chapter-viewer...$(NC)"
-	@[ -d "$(VIEWER_PUBLIC)" ] || \
-		(echo "$(YELLOW)⚠️  Content not found. Run 'make build' first$(NC)" && exit 1)
-	cd $(VIEWER_DIR) && npm run dev
-
-# Build and start viewer in one command
-dev: build viewer
 
 # Verify all images and content integrity
 verify:
 	@echo "$(BLUE)Verifying content integrity...$(NC)"
-	@[ -d "$(VIEWER_PUBLIC)" ] || \
+	@[ -d "$(EXPORT_DIR)" ] || \
 		(echo "$(YELLOW)⚠️  Content not found. Run 'make build' first$(NC)" && exit 1)
 	$(PYTHON) verify_images.py
 	@echo ""
@@ -143,40 +119,20 @@ verify:
 stats:
 	@echo "$(BLUE)Book Content Statistics$(NC)"
 	@echo "======================="
-	@[ -d "$(JSON_DIR)" ] && \
-		echo "Chapters:    $$(ls -d $(JSON_DIR)/chapter_* 2>/dev/null | wc -l)" || \
-		echo "Chapters:    0 (not built)"
-	@[ -d "$(JSON_DIR)" ] && \
-		echo "JSON files:  $$(find $(JSON_DIR) -name "*.json" 2>/dev/null | wc -l)" || \
-		echo "JSON files:  0"
-	@[ -d "$(JSON_DIR)" ] && \
-		echo "Images:      $$(find $(JSON_DIR) -name "*.png" -o -name "*.jpg" 2>/dev/null | wc -l)" || \
-		echo "Images:      0"
-	@[ -f "$(JSON_DIR)/index.json" ] && \
-		echo "Index:       ✓ Present" || \
-		echo "Index:       ✗ Missing"
+	@if [ -d "$(EXPORT_DIR)" ]; then \
+		echo "Languages:   $$(ls -d $(EXPORT_DIR)/*/ 2>/dev/null | grep -v pictures | wc -l | tr -d ' ')"; \
+		echo "JSON files:  $$(find $(EXPORT_DIR) -name '*.json' 2>/dev/null | wc -l | tr -d ' ')"; \
+		echo "Images:      $$(find $(EXPORT_DIR)/pictures -name '*.png' -o -name '*.jpg' 2>/dev/null | wc -l | tr -d ' ')"; \
+		echo "Manifests:   $$(find $(EXPORT_DIR) -name '_book.toml' 2>/dev/null | wc -l | tr -d ' ')"; \
+	else \
+		echo "Not built yet. Run 'make build' first."; \
+	fi
 
 # Quick rebuild (clean and build)
 rebuild: clean build
 
 # Full rebuild (clean everything and build)
-rebuild-all: clean-all build
-
-# List all chapters
-list-chapters:
-	@echo "$(BLUE)Chapters in JSON directory:$(NC)"
-	@[ -d "$(JSON_DIR)" ] && \
-		ls -1 $(JSON_DIR) | grep "chapter_" || \
-		echo "No chapters found. Run 'make build' first."
-
-# Deploy to viewer (just copy step)
-deploy-viewer:
-	@echo "$(BLUE)Deploying content to chapter-viewer...$(NC)"
-	@[ -d "$(JSON_DIR)" ] || \
-		(echo "$(YELLOW)⚠️  Source content not found. Run 'make build' first$(NC)" && exit 1)
-	rm -rf $(VIEWER_PUBLIC)
-	cp -r $(JSON_DIR) $(VIEWER_PUBLIC)
-	@echo "$(GREEN)✅ Content deployed to viewer$(NC)"
+rebuild-all: clean build
 
 # Setup LibreOffice for ImageMagick (macOS only)
 setup-libreoffice:
@@ -193,18 +149,33 @@ status:
 		echo "  ✓ $(INPUT_DOCX)" || \
 		echo "  ✗ $(INPUT_DOCX) (missing)"
 	@echo ""
+	@echo "Configuration:"
+	@[ -f "book_config.toml" ] && \
+		echo "  ✓ book_config.toml" || \
+		echo "  ✗ book_config.toml (using defaults)"
+	@echo ""
 	@echo "Generated content:"
-	@[ -d "$(JSON_DIR)" ] && \
-		echo "  ✓ $(JSON_DIR)/ ($$(ls -d $(JSON_DIR)/chapter_* 2>/dev/null | wc -l) chapters)" || \
-		echo "  ✗ $(JSON_DIR)/ (not created)"
-	@[ -d "$(VIEWER_PUBLIC)" ] && \
-		echo "  ✓ $(VIEWER_PUBLIC)/ (ready)" || \
-		echo "  ✗ $(VIEWER_PUBLIC)/ (not deployed)"
+	@if [ -d "$(EXPORT_DIR)" ]; then \
+		LANG_COUNT=$$(ls -d $(EXPORT_DIR)/*/ 2>/dev/null | grep -v pictures | wc -l | tr -d ' '); \
+		echo "  ✓ $(EXPORT_DIR)/ ($$LANG_COUNT language(s))"; \
+	else \
+		echo "  ✗ $(EXPORT_DIR)/ (not created)"; \
+	fi
+	@if [ -d "$(EXPORT_DIR)/pictures" ]; then \
+		echo "  ✓ $(EXPORT_DIR)/pictures/"; \
+	else \
+		echo "  ✗ $(EXPORT_DIR)/pictures/ (not created)"; \
+	fi
+	@if [ -d "$(MARKDOWN_DIR)" ]; then \
+		echo "  ✓ $(MARKDOWN_DIR)/"; \
+	else \
+		echo "  ✗ $(MARKDOWN_DIR)/ (not created)"; \
+	fi
 	@echo ""
 	@echo "Dependencies:"
 	@[ -f "venv/bin/python3" ] && echo "  ✓ Python venv" || echo "  ✗ Python venv"
 	@[ -f "venv/bin/python3" ] && $(PYTHON) -c "import docx" 2>/dev/null && echo "  ✓ python-docx" || echo "  ✗ python-docx"
-	@command -v convert >/dev/null 2>&1 && echo "  ✓ ImageMagick" || echo "  ✗ ImageMagick"
-	@command -v node >/dev/null 2>&1 && echo "  ✓ Node.js" || echo "  ✗ Node.js"
-	@[ -d "$(VIEWER_DIR)/node_modules" ] && echo "  ✓ Viewer dependencies" || echo "  ✗ Viewer dependencies"
+	@(command -v convert >/dev/null 2>&1 || command -v magick >/dev/null 2>&1) && echo "  ✓ ImageMagick" || echo "  ✗ ImageMagick"
+	@command -v gs >/dev/null 2>&1 && echo "  ✓ Ghostscript" || echo "  ✗ Ghostscript"
+	@command -v libreoffice >/dev/null 2>&1 && echo "  ✓ LibreOffice" || echo "  ⚠ LibreOffice (optional, for WMF)"
 	@echo ""

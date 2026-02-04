@@ -10,7 +10,6 @@ This script:
 """
 
 import json
-import os
 from pathlib import Path
 
 
@@ -38,12 +37,15 @@ def check_file_format(file_path):
         return f"ERROR: {e}"
 
 
-def check_images(base_dir="chapter-viewer/public/book_content_json"):
+def check_images(export_dir="export"):
     """Check all image references and files."""
     print("=" * 80)
     print("IMAGE DIAGNOSTIC CHECK")
     print("=" * 80)
     print()
+
+    export_path = Path(export_dir)
+    pictures_path = export_path / "pictures"
 
     # Statistics
     stats = {
@@ -55,72 +57,101 @@ def check_images(base_dir="chapter-viewer/public/book_content_json"):
         "images_on_disk": set(),
     }
 
-    # Scan JSON files for image references
-    print("Scanning JSON files for image references...")
-    for json_file in Path(base_dir).rglob("*.json"):
-        if json_file.name == "index.json":
+    # Find all language/book directories
+    for lang_dir in sorted(export_path.iterdir()):
+        if not lang_dir.is_dir() or lang_dir.name == "pictures":
             continue
 
-        stats["total_json_files"] += 1
-
-        try:
-            with open(json_file) as f:
-                data = json.load(f)
-
-            if "content" not in data:
+        for book_dir in sorted(lang_dir.iterdir()):
+            if not book_dir.is_dir():
                 continue
 
-            for item in data["content"]:
-                if item.get("type") != "image":
+            print(f"Scanning {lang_dir.name}/{book_dir.name}...")
+
+            # Scan JSON files for image references
+            for json_file in book_dir.rglob("*.json"):
+                if json_file.name in ["index.json", "manifest.json"]:
                     continue
 
-                stats["total_image_refs"] += 1
+                stats["total_json_files"] += 1
 
-                # Get image path
-                img_filename = item.get("filename", "unknown")
-                img_path_rel = item.get("path", "")
+                try:
+                    with open(json_file) as f:
+                        data = json.load(f)
 
-                # Construct full path
-                chapter_dir = json_file.parent
-                if img_path_rel:
-                    img_path = chapter_dir / img_path_rel
-                else:
-                    img_path = chapter_dir / "pictures" / img_filename
+                    if "content" not in data:
+                        continue
 
-                # Check if image exists
-                if not img_path.exists():
-                    stats["missing_images"].append(
-                        {
-                            "json": str(json_file.relative_to(base_dir)),
-                            "filename": img_filename,
-                            "expected_path": str(img_path.relative_to(base_dir)),
-                        }
-                    )
-                else:
-                    # Check file format
-                    actual_format = check_file_format(img_path)
-                    expected_ext = img_path.suffix.upper()[1:]  # Remove dot, uppercase
+                    for item in data["content"]:
+                        if item.get("type") != "image":
+                            continue
 
-                    if expected_ext == "JPG":
-                        expected_ext = "JPEG"
+                        stats["total_image_refs"] += 1
 
-                    if actual_format != expected_ext and actual_format not in [
-                        "ERROR",
-                        "UNKNOWN",
-                    ]:
-                        stats["format_mismatches"].append(
-                            {
-                                "file": str(img_path.relative_to(base_dir)),
-                                "expected": expected_ext,
-                                "actual": actual_format,
-                            }
-                        )
+                        # Get image path
+                        img_path_rel = item.get("path", "")
 
-                    if actual_format == "WMF":
-                        stats["wmf_files"].append(str(img_path.relative_to(base_dir)))
+                        if not img_path_rel:
+                            stats["missing_images"].append(
+                                {
+                                    "json": str(json_file.relative_to(export_path)),
+                                    "filename": "unknown",
+                                    "expected_path": "missing path field",
+                                }
+                            )
+                            continue
 
-        except Exception as e:
-            print(f"  ⚠️  Error reading {json_file.name}: {e}")
+                        # Construct full path
+                        # Path format: pictures/{section_path}/{filename}
+                        # Actual location: export/pictures/{lang}/{book_id}/{section_path}/{filename}
+                        if img_path_rel.startswith("pictures/"):
+                            rel_path = img_path_rel[9:]  # Remove "pictures/" prefix
+                            img_path = (
+                                pictures_path / lang_dir.name / book_dir.name / rel_path
+                            )
+                        else:
+                            img_path = json_file.parent / img_path_rel
+
+                        # Check if image exists
+                        if not img_path.exists():
+                            stats["missing_images"].append(
+                                {
+                                    "json": str(json_file.relative_to(export_path)),
+                                    "filename": img_path.name,
+                                    "expected_path": str(
+                                        img_path.relative_to(export_path)
+                                    ),
+                                }
+                            )
+                        else:
+                            # Check file format
+                            actual_format = check_file_format(img_path)
+                            expected_ext = img_path.suffix.upper()[
+                                1:
+                            ]  # Remove dot, uppercase
+
+                            if expected_ext == "JPG":
+                                expected_ext = "JPEG"
+
+                            if actual_format != expected_ext and actual_format not in [
+                                "ERROR",
+                                "UNKNOWN",
+                            ]:
+                                stats["format_mismatches"].append(
+                                    {
+                                        "file": str(img_path.relative_to(export_path)),
+                                        "expected": expected_ext,
+                                        "actual": actual_format,
+                                    }
+                                )
+
+                            if actual_format == "WMF":
+                                stats["wmf_files"].append(
+                                    str(img_path.relative_to(export_path))
+                                )
+
+                except Exception as e:
+                    print(f"  ⚠️  Error reading {json_file.name}: {e}")
 
     print(f"✓ Scanned {stats['total_json_files']} JSON files")
     print(f"✓ Found {stats['total_image_refs']} image references")
@@ -128,9 +159,14 @@ def check_images(base_dir="chapter-viewer/public/book_content_json"):
 
     # Scan actual image files on disk
     print("Scanning image files on disk...")
-    for img_file in Path(base_dir).rglob("pictures/*"):
-        if img_file.is_file() and img_file.suffix.lower() in [".png", ".jpg", ".jpeg"]:
-            stats["images_on_disk"].add(str(img_file.relative_to(base_dir)))
+    if pictures_path.exists():
+        for img_file in pictures_path.rglob("*"):
+            if img_file.is_file() and img_file.suffix.lower() in [
+                ".png",
+                ".jpg",
+                ".jpeg",
+            ]:
+                stats["images_on_disk"].add(str(img_file.relative_to(export_path)))
 
     print(f"✓ Found {len(stats['images_on_disk'])} image files on disk")
     print()

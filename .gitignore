@@ -35,19 +35,18 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
+# Book Configuration (user-specific, copy from .example)
+book_config.toml
+
 # Generated Book Content (DO NOT COMMIT)
+export/
+export_md/
 markdown_chapters/
 chapters/
 *.docx
 *.doc
 !sample-book.docx
 original-book.docx
-
-# Chapter Viewer Build
-chapter-viewer/dist/
-chapter-viewer/build/
-chapter-viewer/book_content_json/
-chapter-viewer/public/book_content_json/
 
 # Images and Media
 *.wmf.backup

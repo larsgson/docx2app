@@ -33,9 +33,8 @@ We are committed to providing a welcoming and inclusive experience for everyone.
 Before contributing, ensure you have:
 
 - Python 3.8 or higher
-- Node.js 16 or higher
 - Git installed and configured
-- Basic understanding of Python, JavaScript, and React
+- Basic understanding of Python
 - Familiarity with the project structure (see README.md)
 
 ### Development Setup
@@ -90,22 +89,15 @@ Priority areas for contribution:
    - Image optimization improvements
    - Support for more image formats
 
-3. **Viewer Features**
-   - Full-text search functionality
-   - Bookmark/note-taking features
-   - Print/export options
-   - Accessibility improvements
-
-4. **Build System**
+3. **Build System**
    - Faster processing algorithms
    - Better error messages
    - Progress indicators
    - Incremental builds
 
-5. **Testing**
+4. **Testing**
    - Unit tests for build_book.py
    - Integration tests
-   - End-to-end tests for viewer
 
 ## Coding Standards
 
@@ -139,28 +131,6 @@ section_title = "Introduction"
 def process_image(filepath: Path) -> bool:
     """Process and optimize an image."""
     pass
-```
-
-### JavaScript/React Code
-
-Follow modern ES6+ conventions:
-
-```javascript
-// Good - Use const/let, arrow functions
-const ChapterView = ({ chapterId }) => {
-  const [content, setContent] = useState(null);
-  
-  useEffect(() => {
-    loadChapterContent(chapterId);
-  }, [chapterId]);
-  
-  return <div className="chapter">{content}</div>;
-};
-
-// Use descriptive names
-const handleImageLoad = (event) => {
-  console.log('Image loaded:', event.target.src);
-};
 ```
 
 ### Documentation
@@ -212,9 +182,8 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
 2. **Check for errors**
    - No Python exceptions
-   - No console errors in viewer
-   - Images load correctly
-   - Navigation works
+   - Images extracted correctly
+   - JSON/Markdown output valid
 
 3. **Test on different content**
    - Try with different Word documents if possible

@@ -424,7 +424,7 @@ Before running the full conversion system:
    
 2. **Check the JSON output**
    ```bash
-   cat chapter-viewer/book_content_json/chapter_01/section_01.json | grep "chapter_title"
+   cat export/book_content_json/01_*/01_*.json | head -20
    ```
 
 3. **Expected results**

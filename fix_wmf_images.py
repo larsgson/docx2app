@@ -138,12 +138,18 @@ def convert_wmf_to_png(wmf_path, output_path):
         return False
 
 
-def fix_wmf_images(base_dir="chapter-viewer/public/book_content_json"):
+def fix_wmf_images(base_dir="export/pictures"):
     """Find and convert all WMF files with PNG extensions."""
     print("=" * 80)
     print("FIX WMF IMAGES")
     print("=" * 80)
     print()
+
+    base_path = Path(base_dir)
+    if not base_path.exists():
+        print(f"❌ Pictures directory not found: {base_dir}")
+        print("   Run 'make build' first to generate content.")
+        return
 
     # Check if conversion tools are available
     has_soffice = shutil.which("soffice") or shutil.which("libreoffice")
@@ -160,7 +166,7 @@ def fix_wmf_images(base_dir="chapter-viewer/public/book_content_json"):
         print("⚠️  ImageMagick not found - using LibreOffice only")
 
     # Find all PNG files
-    png_files = list(Path(base_dir).rglob("*.png"))
+    png_files = list(base_path.rglob("*.png"))
     print(f"Scanning {len(png_files)} PNG files...")
     print()
 
@@ -171,7 +177,7 @@ def fix_wmf_images(base_dir="chapter-viewer/public/book_content_json"):
     for png_path in png_files:
         if is_wmf_image(png_path):
             wmf_count += 1
-            print(f"Found WMF: {png_path.relative_to(base_dir)}")
+            print(f"Found WMF: {png_path.relative_to(base_path)}")
 
             # Create temporary WMF file
             wmf_temp = str(png_path) + ".wmf.tmp"
