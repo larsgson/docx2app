@@ -662,14 +662,30 @@ def get_document_elements_in_order(doc, toc_end_index):
 
                     # Extract images from this paragraph (both drawing and pict)
                     images = _extract_images_from_element(element, para_index)
+
+                    # Check if paragraph uses frame positioning (w:framePr)
+                    if images:
+                        frame_pr = element.find(f"{{{w_ns}}}pPr/{{{w_ns}}}framePr")
+                        if frame_pr is not None:
+                            # Extract coordinates (try both namespaced and plain attrs)
+                            fx = frame_pr.get(f"{{{w_ns}}}x") or frame_pr.get("x", "0")
+                            fy = frame_pr.get(f"{{{w_ns}}}y") or frame_pr.get("y", "0")
+                            for img in images:
+                                img["frame_positioned"] = True
+                                img["frame_x"] = (
+                                    int(fx) if fx.lstrip("-").isdigit() else 0
+                                )
+                                img["frame_y"] = (
+                                    int(fy) if fy.lstrip("-").isdigit() else 0
+                                )
+
                     for img in images:
                         yield img
 
                     # Warn about potential orphan captions (text with no adjacent image)
                     if not images and text:
-                        # Check raw XML for tab indentation (3+ tabs)
-                        raw_xml = element.xml if hasattr(element, "xml") else ""
-                        tab_count = raw_xml.count(f"<{{{w_ns}}}tab/>")
+                        # Check for tab indentation (3+ tabs)
+                        tab_count = len(element.findall(f".//{{{w_ns}}}tab"))
                         if (
                             tab_count >= 3
                             and len(text) < 200
@@ -922,7 +938,6 @@ def parse_document_structure(doc, exceptions, expected_sequence=None):
 
             # Update current structure
             if section == 0:
-                # Chapter heading
                 current_chapter = chapter
                 current_section = None
                 current_subsection = None
@@ -1010,6 +1025,234 @@ def parse_document_structure(doc, exceptions, expected_sequence=None):
     print(f"✓ Organized into {len(chapters)} chapters")
 
     return chapters, chapter_elements, section_elements, subsection_elements
+
+
+def _is_caption_paragraph(elem_type, elem_obj):
+    """Check if a paragraph element looks like an image caption.
+
+    Signals: italic formatting, 3+ tab indentation, short text, not a section number.
+    """
+    if elem_type != "paragraph":
+        return False
+    if not hasattr(elem_obj, "text"):
+        return False
+    text = elem_obj.text.strip()
+    if not text or len(text) >= 200:
+        return False
+    if re.match(r"^\d+\.\d+", text):
+        return False
+
+    # Check for italic runs
+    has_italic = any(run.italic for run in elem_obj.runs if run.italic is not None)
+    if not has_italic:
+        return False
+
+    # Check for tab indentation (3+ tabs) using lxml element search
+    w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    tab_count = len(elem_obj._element.findall(f".//{{{w_ns}}}tab"))
+    if tab_count < 3:
+        return False
+
+    return True
+
+
+def reconcile_captions_and_images(
+    chapters, chapter_elements, section_elements, subsection_elements
+):
+    """Post-pass: move images to sections with matching orphan captions.
+
+    Scans for sections that have caption-like paragraphs but no images,
+    and adjacent sections (same chapter) that have images without captions.
+    Moves the image(s) to pair them with their captions.
+    """
+    moves = 0
+
+    # Build ordered list of all section keys for adjacency lookup
+    all_keys = []  # list of (key_type, key) tuples
+    for chapter_num in sorted(chapters.keys()):
+        all_keys.append(("chapter", chapter_num))
+        for section_num in sorted(chapters[chapter_num]["sections"].keys()):
+            all_keys.append(("section", (chapter_num, section_num)))
+            for subsection_num in sorted(
+                chapters[chapter_num]["sections"][section_num]["subsections"].keys()
+            ):
+                all_keys.append(
+                    ("subsection", (chapter_num, section_num, subsection_num))
+                )
+
+    def _get_elements(key_type, key):
+        if key_type == "chapter":
+            return chapter_elements.get(key, [])
+        elif key_type == "section":
+            return section_elements.get(key, [])
+        else:
+            return subsection_elements.get(key, [])
+
+    def _set_elements(key_type, key, elements):
+        if key_type == "chapter":
+            chapter_elements[key] = elements
+        elif key_type == "section":
+            section_elements[key] = elements
+        else:
+            subsection_elements[key] = elements
+
+    def _has_images(elements):
+        return any(et == "image" for et, _ in elements)
+
+    def _has_caption(elements):
+        return any(_is_caption_paragraph(et, eo) for et, eo in elements)
+
+    def _chapter_of(key_type, key):
+        if key_type == "chapter":
+            return key
+        return key[0]
+
+    # Scan for sections with captions but no images
+    for idx, (key_type, key) in enumerate(all_keys):
+        elements = _get_elements(key_type, key)
+
+        if not _has_caption(elements) or _has_images(elements):
+            continue
+
+        # Found orphan caption section — look backward 1-2 sections for a donor
+        for look_back in range(1, 3):
+            donor_idx = idx - look_back
+            if donor_idx < 0:
+                break
+            donor_key_type, donor_key = all_keys[donor_idx]
+
+            # Must be same chapter
+            if _chapter_of(key_type, key) != _chapter_of(donor_key_type, donor_key):
+                break
+
+            donor_elements = _get_elements(donor_key_type, donor_key)
+
+            if _has_images(donor_elements) and not _has_caption(donor_elements):
+                # Move image(s) from donor to caption section
+                images_to_move = [
+                    (et, eo) for et, eo in donor_elements if et == "image"
+                ]
+                remaining = [(et, eo) for et, eo in donor_elements if et != "image"]
+                _set_elements(donor_key_type, donor_key, remaining)
+
+                # Insert images just before the caption in the target
+                target_elements = _get_elements(key_type, key)
+                caption_pos = next(
+                    (
+                        i
+                        for i, (et, eo) in enumerate(target_elements)
+                        if _is_caption_paragraph(et, eo)
+                    ),
+                    None,
+                )
+
+                if caption_pos is not None:
+                    for img in reversed(images_to_move):
+                        target_elements.insert(caption_pos, img)
+                else:
+                    target_elements.extend(images_to_move)
+
+                _set_elements(key_type, key, target_elements)
+                moves += len(images_to_move)
+                print(
+                    f"    Caption reconciliation: moved {len(images_to_move)} image(s)"
+                    f" from {donor_key} to {key}"
+                )
+                break  # Only one donor per orphan
+
+    if moves:
+        print(f"  Caption reconciliation: {moves} image(s) relocated total")
+    else:
+        print("  Caption reconciliation: no relocations needed")
+
+
+def validate_image_sequence(
+    chapters,
+    chapter_elements,
+    section_elements,
+    subsection_elements,
+    log_dir=None,
+):
+    """Check that image indices are monotonically non-decreasing within each chapter.
+
+    Images are extracted sequentially from the DOCX, so their index numbers
+    should increase as you move through sections.  An out-of-order index
+    suggests a frame-positioned image may have been assigned to the wrong section.
+
+    If *log_dir* is given, a detailed log is written to
+    ``<log_dir>/image_sequence_validation.log``.
+    """
+    lines = []  # collect all output lines for the log file
+    warnings = 0
+
+    for chapter_num in sorted(chapters.keys()):
+        # Collect (section_key_label, image_index) pairs in document order
+        sequence = []
+
+        # Chapter intro
+        for et, eo in chapter_elements.get(chapter_num, []):
+            if et == "image":
+                sequence.append((f"{chapter_num}.0", eo[1]))
+
+        # Sections and subsections
+        for section_num in sorted(chapters[chapter_num]["sections"].keys()):
+            key = (chapter_num, section_num)
+            for et, eo in section_elements.get(key, []):
+                if et == "image":
+                    sequence.append((f"{chapter_num}.{section_num}", eo[1]))
+
+            for subsection_num in sorted(
+                chapters[chapter_num]["sections"][section_num]["subsections"].keys()
+            ):
+                sub_key = (chapter_num, section_num, subsection_num)
+                for et, eo in subsection_elements.get(sub_key, []):
+                    if et == "image":
+                        sequence.append(
+                            (f"{chapter_num}.{section_num}.{subsection_num}", eo[1])
+                        )
+
+        # Walk sequence and check monotonicity
+        max_seen = -1
+        chapter_warnings = 0
+        for section_label, img_idx in sequence:
+            if img_idx < max_seen:
+                gap = max_seen - img_idx
+                msg = (
+                    f"  WARNING: Image #{img_idx} in section {section_label}"
+                    f" is out of sequence (previous max #{max_seen}, gap={gap})"
+                )
+                print(f"  {msg}")
+                lines.append(msg)
+                warnings += 1
+                chapter_warnings += 1
+            if img_idx > max_seen:
+                max_seen = img_idx
+
+        if chapter_warnings:
+            lines.append(
+                f"  Chapter {chapter_num}: {chapter_warnings} warning(s) "
+                f"({len(sequence)} images)\n"
+            )
+        else:
+            lines.append(f"  Chapter {chapter_num}: OK ({len(sequence)} images)")
+
+    # Summary
+    if warnings:
+        summary = f"Image sequence validation: {warnings} warning(s)"
+    else:
+        summary = "Image sequence validation: all OK"
+    print(f"  {summary}")
+    lines.insert(0, summary + "\n")
+
+    # Write log file
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        log_path = os.path.join(log_dir, "image_sequence_validation.log")
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        print(f"  Log written to {log_path}")
+
+    return warnings
 
 
 def extract_paragraph_json(para):
@@ -1961,6 +2204,12 @@ def build_book_json():
         parse_document_structure(doc, exceptions, expected_sequence)
     )
 
+    # Reconcile frame-positioned images with orphan captions
+    print("\nReconciling image-caption pairs...")
+    reconcile_captions_and_images(
+        chapters, chapter_elements, section_elements, subsection_elements
+    )
+
     # Build title map from expected sequence
     title_map = {}
     for entry in expected_sequence:
@@ -2410,6 +2659,16 @@ def build_book_json():
         images_root = os.path.join(json_book_dir, "pictures")
     if os.path.exists(images_root):
         validate_images(json_book_dir, images_root)
+
+    # Validate image index sequence to detect misplaced pairings
+    print("\nValidating image sequence...")
+    validate_image_sequence(
+        chapters,
+        chapter_elements,
+        section_elements,
+        subsection_elements,
+        log_dir=json_book_dir,
+    )
 
 
 if __name__ == "__main__":
