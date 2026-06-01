@@ -28,6 +28,9 @@ def _get_lang_code():
     return os.environ.get("LANG_CODE")
 
 
+STRUCTURE_REF_FILE = "structure_reference.toml"
+
+
 def discover_lang_files(lang):
     """Auto-discover DOCX and exceptions files in lang-store/<lang>/.
 
@@ -54,6 +57,57 @@ def discover_lang_files(lang):
     exceptions_path = str(conf_files[0]) if conf_files else None
 
     return docx_path, exceptions_path
+
+
+def load_structure_reference(lang):
+    """Load structure_reference.toml if it exists for this language.
+
+    Returns a list of expected-sequence dicts (same format as
+    build_toc_structure output), or None if no reference file exists.
+    """
+    from pathlib import Path
+    ref_path = Path(LANG_STORE_DIR) / lang / STRUCTURE_REF_FILE
+    if not ref_path.exists():
+        return None
+
+    try:
+        import tomllib
+    except ImportError:
+        try:
+            import tomli as tomllib
+        except ImportError:
+            print(f"Warning: cannot read {ref_path} (need Python 3.11+ or tomli)")
+            return None
+
+    with open(ref_path, "rb") as f:
+        data = tomllib.load(f)
+
+    entries = data.get("entry", [])
+    if not entries:
+        return None
+
+    sequence = []
+    valid_nums = set()
+    for e in entries:
+        num = e["num"]
+        parts = num.split(".")
+        chapter = int(parts[0])
+        section = int(parts[1]) if len(parts) >= 2 else 0
+        subsection = int(parts[2]) if len(parts) >= 3 else None
+
+        title = f"{num} {e.get('title', '')}"
+        sequence.append({
+            "type": e["type"],
+            "chapter": chapter,
+            "section": section,
+            "subsection": subsection,
+            "title": title,
+            "title_normalized": normalize_for_comparison(title),
+        })
+        valid_nums.add(num)
+
+    print(f"✓ Loaded structure reference: {len(sequence)} entries from {ref_path}")
+    return sequence
 
 
 # ============================================================================
@@ -421,15 +475,29 @@ def normalize_toc_text(text):
     return text.strip()
 
 
-def is_toc_false_positive(text, entry_type, chapter, section=None, subsection=None):
-    """Check if this is a false positive (not an actual TOC entry)."""
-    # Filter out dosage patterns like "0.2 mg/kg" - must have unit immediately after number
-    if re.search(r"\d+\.\d+\s*(mg|ml|kg|g(?!\w)|lb|%|cc)\b", text, re.IGNORECASE):
-        return True
+def is_toc_false_positive(text, entry_type, chapter, section=None, subsection=None,
+                          false_positive_units=None, false_positive_age_words=None):
+    """Check if this is a false positive (not an actual TOC entry).
 
-    # Filter out age patterns like "1.5 years"
-    if re.search(r"\d+\.\d+\s*(year|month|week|day|hour)", text, re.IGNORECASE):
-        return True
+    false_positive_units and false_positive_age_words are loaded from
+    book_config.toml per language.
+    """
+    if false_positive_units is None:
+        false_positive_units = []
+    if false_positive_age_words is None:
+        false_positive_age_words = []
+
+    # Filter out dosage patterns like "0.2 mg/kg"
+    if false_positive_units:
+        units_pat = "|".join(re.escape(u) for u in false_positive_units)
+        if re.search(rf"\d+\.\d+\s*({units_pat})(?!\w)", text, re.IGNORECASE):
+            return True
+
+    # Filter out age/measurement patterns like "1.5 years" or "6.0 \u043c\u0435\u0442\u0440\u043e\u0432"
+    if false_positive_age_words:
+        age_pat = "|".join(re.escape(w) for w in false_positive_age_words)
+        if re.search(rf"\d+\.\d+\s*({age_pat})", text, re.IGNORECASE):
+            return True
 
     # Filter out decimal numbers in context like "0.5 pour-on"
     if re.match(r"^0\.\d+\s", text):
@@ -456,11 +524,13 @@ def is_toc_false_positive(text, entry_type, chapter, section=None, subsection=No
     return False
 
 
-def extract_toc_from_document(doc):
+def extract_toc_from_document(doc, fp_units=None, fp_age_words=None):
     """Extract TOC entries directly from the document."""
     toc_entries = []
     in_toc = False
     consecutive_non_toc = 0
+
+    fp_kwargs = dict(false_positive_units=fp_units, false_positive_age_words=fp_age_words)
 
     for para in doc.paragraphs:
         text = para.text.strip()
@@ -491,7 +561,7 @@ def extract_toc_from_document(doc):
             chapter_match = re.match(r"^(\d+)\.\s*0\s+(.+)", normalized)
             if chapter_match:
                 chapter = int(chapter_match.group(1))
-                if not is_toc_false_positive(normalized, "chapter", chapter):
+                if not is_toc_false_positive(normalized, "chapter", chapter, **fp_kwargs):
                     toc_entries.append(
                         {
                             "type": "chapter",
@@ -508,7 +578,7 @@ def extract_toc_from_document(doc):
             if section_match and int(section_match.group(2)) > 0:
                 chapter = int(section_match.group(1))
                 section = int(section_match.group(2))
-                if not is_toc_false_positive(normalized, "section", chapter, section):
+                if not is_toc_false_positive(normalized, "section", chapter, section, **fp_kwargs):
                     toc_entries.append(
                         {
                             "type": "section",
@@ -529,7 +599,7 @@ def extract_toc_from_document(doc):
                 section = int(subsection_match.group(2))
                 subsection = int(subsection_match.group(3))
                 if not is_toc_false_positive(
-                    normalized, "subsection", chapter, section, subsection
+                    normalized, "subsection", chapter, section, subsection, **fp_kwargs
                 ):
                     toc_entries.append(
                         {
@@ -645,11 +715,127 @@ def extract_number_and_title(text, doc, para_index):
     return None
 
 
-def extract_toc_structure(doc):
+def extract_chapter_headings_from_body(doc, fp_units=None, fp_age_words=None):
+    """Fallback: scan document body for N.0 chapter headings when no TOC is found.
+
+    Looks for paragraphs matching the N.0 pattern that use Heading styles or
+    are visually distinct (bold, large font) from body text.
+    """
+    fp_kwargs = dict(false_positive_units=fp_units, false_positive_age_words=fp_age_words)
+    entries = []
+    seen_chapters = set()
+
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+
+        style_name = para.style.name if para.style else ""
+        is_heading = style_name.startswith("Heading")
+
+        normalized = normalize_toc_text(text)
+        chapter_match = re.match(r"^(\d+)\.\s*0\s+(.+)", normalized)
+        if not chapter_match:
+            continue
+
+        chapter = int(chapter_match.group(1))
+        if is_toc_false_positive(normalized, "chapter", chapter, **fp_kwargs):
+            continue
+
+        if chapter in seen_chapters:
+            continue
+
+        # Accept if it's a Heading style, or if the paragraph has bold formatting
+        run_bold = any(r.bold for r in para.runs if r.bold is not None)
+        if is_heading or run_bold:
+            seen_chapters.add(chapter)
+            entries.append({
+                "type": "chapter",
+                "chapter": chapter,
+                "section": 0,
+                "subsection": None,
+                "title": normalized,
+            })
+
+    # Also scan for section-level entries (N.X where X > 0)
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+
+        style_name = para.style.name if para.style else ""
+        is_heading = style_name.startswith("Heading")
+        run_bold = any(r.bold for r in para.runs if r.bold is not None)
+        if not (is_heading or run_bold):
+            continue
+
+        normalized = normalize_toc_text(text)
+
+        subsection_match = re.match(r"^(\d+)\.\s*(\d+)\.\s*(\d+)\s+(.+)", normalized)
+        if subsection_match:
+            ch = int(subsection_match.group(1))
+            sec = int(subsection_match.group(2))
+            sub = int(subsection_match.group(3))
+            if ch in seen_chapters and not is_toc_false_positive(
+                normalized, "subsection", ch, sec, sub, **fp_kwargs
+            ):
+                entries.append({
+                    "type": "subsection",
+                    "chapter": ch,
+                    "section": sec,
+                    "subsection": sub,
+                    "title": normalized,
+                })
+            continue
+
+        section_match = re.match(r"^(\d+)\.\s*(\d+)\s+(.+)", normalized)
+        if section_match and int(section_match.group(2)) > 0:
+            ch = int(section_match.group(1))
+            sec = int(section_match.group(2))
+            if ch in seen_chapters and not is_toc_false_positive(
+                normalized, "section", ch, sec, **fp_kwargs
+            ):
+                entries.append({
+                    "type": "section",
+                    "chapter": ch,
+                    "section": sec,
+                    "subsection": None,
+                    "title": normalized,
+                })
+
+    # Sort by (chapter, section, subsection) to get document order
+    def sort_key(e):
+        return (e["chapter"], e["section"], e.get("subsection") or 0)
+    entries.sort(key=sort_key)
+
+    return entries
+
+
+def _is_valid_toc(toc_entries):
+    """Check whether extracted TOC entries look like a real table of contents.
+
+    A valid TOC should contain chapter-level entries starting from a low
+    chapter number (1-3).  If the earliest chapter is 10+, the entries
+    are almost certainly body text that happened to contain dot leaders.
+    """
+    chapter_nums = [e["chapter"] for e in toc_entries if e["type"] == "chapter"]
+    if not chapter_nums:
+        return False
+    return min(chapter_nums) <= 3
+
+
+def extract_toc_structure(doc, fp_units=None, fp_age_words=None):
     """Extract TOC structure directly from document."""
     print("Extracting TOC from document...")
-    toc_entries = extract_toc_from_document(doc)
+    toc_entries = extract_toc_from_document(doc, fp_units, fp_age_words)
     print(f"  Found {len(toc_entries)} TOC entries")
+
+    if not toc_entries or not _is_valid_toc(toc_entries):
+        if toc_entries:
+            print("  Detected entries don't look like a real TOC (no low-numbered chapters)")
+        print("  Scanning body for chapter headings...")
+        toc_entries = extract_chapter_headings_from_body(doc, fp_units, fp_age_words)
+        print(f"  Found {len(toc_entries)} entries from body headings")
 
     expected_sequence = build_toc_structure(toc_entries)
     return expected_sequence
@@ -867,12 +1053,28 @@ def get_document_elements_in_order(doc, toc_end_index):
                     }
 
 
-def parse_document_structure(doc, exceptions, expected_sequence=None):
+def parse_document_structure(doc, exceptions, expected_sequence=None,
+                             fp_units=None, fp_age_words=None,
+                             structure_ref_loaded=False):
     """Parse document using TOC-guided approach."""
+    fp_kwargs = dict(false_positive_units=fp_units, false_positive_age_words=fp_age_words)
     if expected_sequence is None:
         print("Extracting TOC structure...")
-        expected_sequence = extract_toc_structure(doc)
+        expected_sequence = extract_toc_structure(doc, fp_units, fp_age_words)
         print(f"✓ Extracted {len(expected_sequence)} expected entries")
+
+    # When a structure reference is loaded, build a set of valid numberings.
+    # Parsed headings whose numbering is not in this set are rejected as
+    # false positives (numbering is hard authority from the reference).
+    ref_valid_nums = None
+    if structure_ref_loaded and expected_sequence:
+        ref_valid_nums = set()
+        for e in expected_sequence:
+            sub = e.get("subsection")
+            if sub is not None:
+                ref_valid_nums.add(f"{e['chapter']}.{e['section']}.{sub}")
+            else:
+                ref_valid_nums.add(f"{e['chapter']}.{e['section']}")
 
     print("Finding TOC end...")
     toc_end_index = find_toc_end(doc)
@@ -913,6 +1115,16 @@ def parse_document_structure(doc, exceptions, expected_sequence=None):
         if source["type"] == "paragraph":
             text = source["text"]
             parsed = extract_number_and_title(text, source["doc"], source["index"])
+            if parsed:
+                ch, sec, sub, full = parsed
+                entry_type = "chapter" if sec == 0 else ("subsection" if sub else "section")
+                if is_toc_false_positive(text, entry_type, ch, sec, sub, **fp_kwargs):
+                    parsed = None
+            if parsed and ref_valid_nums is not None:
+                ch, sec, sub, full = parsed
+                num_key = f"{ch}.{sec}.{sub}" if sub is not None else f"{ch}.{sec}"
+                if num_key not in ref_valid_nums:
+                    parsed = None
             # Fallback: if no number found, check if heading style matches a TOC entry
             if parsed is None and expected_sequence:
                 para_obj = source["element"]
@@ -1982,21 +2194,37 @@ def build_book_json():
         print("✓ No exceptions configured")
     print()
 
+    # Load false-positive patterns from config
+    fp_units = config.get("false_positive_units", [])
+    fp_age_words = config.get("false_positive_age_words", [])
+    if fp_units or fp_age_words:
+        print(f"✓ Loaded false-positive filters ({len(fp_units)} units, {len(fp_age_words)} age/measurement words)")
+    print()
+
     # Load document
     print(f"Loading document: {input_docx}")
     doc = Document(input_docx)
     print(f"✓ Loaded {len(doc.paragraphs)} paragraphs, {len(doc.tables)} tables")
     print()
 
+    # Load structure reference (optional, from PDF-derived TOML)
+    lang = config["language"]
+    structure_ref = load_structure_reference(lang) if lang else None
+
     # Extract TOC structure for navigation index
-    print("Extracting TOC structure...")
-    expected_sequence = extract_toc_structure(doc)
-    print(f"✓ Extracted {len(expected_sequence)} expected entries")
+    if structure_ref:
+        print(f"Using structure reference as expected sequence ({len(structure_ref)} entries)")
+        expected_sequence = structure_ref
+    else:
+        print("Extracting TOC structure...")
+        expected_sequence = extract_toc_structure(doc, fp_units, fp_age_words)
+        print(f"✓ Extracted {len(expected_sequence)} expected entries")
     print()
 
     # Parse structure
     chapters, chapter_elements, section_elements, subsection_elements = (
-        parse_document_structure(doc, exceptions, expected_sequence)
+        parse_document_structure(doc, exceptions, expected_sequence, fp_units, fp_age_words,
+                                structure_ref_loaded=structure_ref is not None)
     )
 
     # Analyse image-caption pairing (non-mutating — records relocations only)
