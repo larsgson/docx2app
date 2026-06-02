@@ -437,6 +437,16 @@ def normalize_for_comparison(text):
     return text.strip()
 
 
+def normalize_for_fuzzy_match(text):
+    """Extended normalization for cross-source matching (DOCX vs PDF reference)."""
+    text = normalize_for_comparison(text)
+    text = re.sub('[«»“”„‟‘’‚‛]', '"', text)
+    text = re.sub('[–—―]', '-', text)
+    text = re.sub(r"!{2,}", "!", text)
+    text = re.sub(r"\?{2,}", "?", text)
+    return text
+
+
 def load_exceptions(exceptions_file="conf/exceptions.conf"):
     """Load TOC exceptions from configuration file."""
     exceptions = {}
@@ -1125,49 +1135,76 @@ def parse_document_structure(doc, exceptions, expected_sequence=None,
                 num_key = f"{ch}.{sec}.{sub}" if sub is not None else f"{ch}.{sec}"
                 if num_key not in ref_valid_nums:
                     parsed = None
-            # Fallback: if no number found, check if heading style matches a TOC entry
+            # Fallback: if no number found, check if heading style or title matches a TOC entry
             if parsed is None and expected_sequence:
                 para_obj = source["element"]
                 style_name = para_obj.style.name if para_obj.style else ""
-                if style_name.startswith("Heading"):
-                    para_title = normalize_for_comparison(text)
-                    if len(para_title) > 3:
-                        # Search remaining TOC entries for title match
-                        # Prefer chapter-level (N.0) entries for Heading 1
-                        best_match = None
-                        for look_idx in range(
-                            expected_index, len(expected_sequence)
-                        ):
-                            look_entry = expected_sequence[look_idx]
-                            look_title_only = re.sub(
-                                r"^\d+\.\d+(?:\.\d+)?\s*", "",
-                                look_entry["title_normalized"],
+                is_heading = style_name.startswith("Heading")
+                para_title = normalize_for_comparison(text)
+
+                if is_heading and len(para_title) > 3:
+                    # Heading-styled paragraph: search broadly
+                    best_match = None
+                    for look_idx in range(
+                        expected_index, len(expected_sequence)
+                    ):
+                        look_entry = expected_sequence[look_idx]
+                        look_title_only = re.sub(
+                            r"^\d+\.\d+(?:\.\d+)?\s*", "",
+                            look_entry["title_normalized"],
+                        )
+                        if (
+                            len(look_title_only) > 3
+                            and (
+                                para_title in look_title_only
+                                or look_title_only in para_title
                             )
-                            if (
-                                len(look_title_only) > 3
-                                and (
-                                    para_title in look_title_only
-                                    or look_title_only in para_title
-                                )
-                            ):
-                                is_chapter = look_entry["section"] == 0
-                                gap = look_idx - expected_index
-                                # Accept immediately if it's nearby (within 10)
-                                if gap <= 10:
-                                    best_match = look_idx
-                                    break
-                                # For large jumps, only accept chapter-level matches
-                                # to avoid false positives from subsection titles
-                                elif is_chapter:
-                                    best_match = look_idx
-                                    break
-                        if best_match is not None:
-                            match_entry = expected_sequence[best_match]
+                        ):
+                            is_chapter = look_entry["section"] == 0
+                            gap = look_idx - expected_index
+                            if gap <= 10:
+                                best_match = look_idx
+                                break
+                            elif is_chapter:
+                                best_match = look_idx
+                                break
+                    if best_match is not None:
+                        match_entry = expected_sequence[best_match]
+                        ch = match_entry["chapter"]
+                        sec = match_entry["section"]
+                        sub = match_entry.get("subsection")
+                        parsed = (ch, sec, sub, text)
+                        expected_index = best_match + 1
+
+                # When a structure reference is loaded, also try fuzzy title
+                # matching on non-heading paragraphs — but only against
+                # nearby expected entries to avoid false positives.
+                if parsed is None and ref_valid_nums is not None and len(para_title) > 5:
+                    fuzzy_title = normalize_for_fuzzy_match(text)
+                    for look_idx in range(
+                        expected_index, min(expected_index + 5, len(expected_sequence))
+                    ):
+                        look_entry = expected_sequence[look_idx]
+                        look_title_raw = re.sub(
+                            r"^\d+\.\d+(?:\.\d+)?\s*", "",
+                            look_entry["title_normalized"],
+                        )
+                        look_title_fuzzy = normalize_for_fuzzy_match(look_title_raw)
+                        if (
+                            len(look_title_fuzzy) > 5
+                            and (
+                                fuzzy_title == look_title_fuzzy
+                                or (fuzzy_title in look_title_fuzzy and len(fuzzy_title) > 8)
+                                or (look_title_fuzzy in fuzzy_title and len(look_title_fuzzy) > 8)
+                            )
+                        ):
+                            match_entry = expected_sequence[look_idx]
                             ch = match_entry["chapter"]
                             sec = match_entry["section"]
                             sub = match_entry.get("subsection")
                             parsed = (ch, sec, sub, text)
-                            expected_index = best_match + 1
+                            expected_index = look_idx + 1
+                            break
         elif source["type"] == "table_cell":
             text = source["text"]
             parsed = extract_number_and_title(text, None, None)
@@ -1230,68 +1267,95 @@ def parse_document_structure(doc, exceptions, expected_sequence=None,
                 if numbering_match:
                     expected_index += 1
                 else:
-                    # Try title match
-                    text_normalized = normalize_for_comparison(full_text)
-                    text_title_only = re.sub(
-                        r"^\d+\.\d+(?:\.\d+)?\s*", "", text_normalized
-                    )
-
-                    title_match_found = None
-                    for look_idx in range(
-                        expected_index, min(expected_index + 5, len(expected_sequence))
-                    ):
-                        look_entry = expected_sequence[look_idx]
-                        look_title_normalized = look_entry["title_normalized"]
-                        look_title_only = re.sub(
-                            r"^\d+\.\d+(?:\.\d+)?\s*", "", look_title_normalized
-                        )
-
-                        if (
-                            text_title_only in look_title_only
-                            or look_title_only in text_title_only
-                            or text_title_only == look_title_only
-                        ) and len(text_title_only) > 3:
-                            title_match_found = (look_idx, look_entry)
-                            break
-
-                    if title_match_found:
-                        match_idx, match_entry = title_match_found
-                        chapter = match_entry["chapter"]
-                        section = match_entry["section"]
-                        subsection = match_entry.get("subsection")
-                        expected_index = match_idx + 1
-                    else:
-                        # Neither numbering nor title matches - validate it's in TOC
-                        # Check if this exact numbering exists anywhere in TOC
-                        found_in_toc = False
-                        for check_entry in expected_sequence:
+                    # When a structure reference is loaded, numbering is
+                    # hard authority — search the full sequence for a match.
+                    # Without a reference, skip this to avoid false jumps.
+                    numbering_jump = None
+                    if ref_valid_nums is not None:
+                        for look_idx in range(
+                            expected_index, len(expected_sequence)
+                        ):
+                            look_entry = expected_sequence[look_idx]
                             if (
-                                check_entry["chapter"] == chapter
-                                and check_entry["section"] == section
-                                and check_entry.get("subsection") == subsection
+                                look_entry["chapter"] == chapter
+                                and look_entry["section"] == section
+                                and look_entry.get("subsection") == subsection
                             ):
-                                # Numbering exists in TOC - check if title is close enough
-                                toc_title = check_entry["title_normalized"]
-                                toc_title_only = re.sub(
-                                    r"^\d+\.\d+(?:\.\d+)?\s*", "", toc_title
-                                )
-
-                                text_normalized = normalize_for_comparison(full_text)
-                                text_title_only = re.sub(
-                                    r"^\d+\.\d+(?:\.\d+)?\s*", "", text_normalized
-                                )
-
-                                if len(text_title_only) > 3 and (
-                                    text_title_only in toc_title_only
-                                    or toc_title_only in text_title_only
-                                ):
-                                    found_in_toc = True
+                                numbering_jump = look_idx
                                 break
 
-                        if not found_in_toc:
-                            # False positive - skip it
-                            found_count -= 1
-                            continue
+                    if numbering_jump is not None:
+                        expected_index = numbering_jump + 1
+                    else:
+                        # Try title match in nearby entries
+                        text_normalized = normalize_for_comparison(full_text)
+                        text_title_only = re.sub(
+                            r"^\d+\.\d+(?:\.\d+)?\s*", "", text_normalized
+                        )
+
+                        title_match_found = None
+                        look_range = 10 if ref_valid_nums is not None else 5
+                        for look_idx in range(
+                            expected_index, min(expected_index + look_range, len(expected_sequence))
+                        ):
+                            look_entry = expected_sequence[look_idx]
+                            look_title_normalized = look_entry["title_normalized"]
+                            look_title_only = re.sub(
+                                r"^\d+\.\d+(?:\.\d+)?\s*", "", look_title_normalized
+                            )
+
+                            if (
+                                text_title_only in look_title_only
+                                or look_title_only in text_title_only
+                                or text_title_only == look_title_only
+                            ) and len(text_title_only) > 3:
+                                title_match_found = (look_idx, look_entry)
+                                break
+
+                        if title_match_found:
+                            match_idx, match_entry = title_match_found
+                            chapter = match_entry["chapter"]
+                            section = match_entry["section"]
+                            subsection = match_entry.get("subsection")
+                            expected_index = match_idx + 1
+                        elif ref_valid_nums is not None:
+                            # Structure reference loaded: numbering is hard
+                            # authority. If it's in the reference, accept it.
+                            num_key = f"{chapter}.{section}"
+                            if subsection is not None:
+                                num_key += f".{subsection}"
+                            if num_key not in ref_valid_nums:
+                                found_count -= 1
+                                continue
+                        else:
+                            # No structure reference: validate against TOC
+                            found_in_toc = False
+                            for check_entry in expected_sequence:
+                                if (
+                                    check_entry["chapter"] == chapter
+                                    and check_entry["section"] == section
+                                    and check_entry.get("subsection") == subsection
+                                ):
+                                    toc_title = check_entry["title_normalized"]
+                                    toc_title_only = re.sub(
+                                        r"^\d+\.\d+(?:\.\d+)?\s*", "", toc_title
+                                    )
+
+                                    text_normalized = normalize_for_comparison(full_text)
+                                    text_title_only = re.sub(
+                                        r"^\d+\.\d+(?:\.\d+)?\s*", "", text_normalized
+                                    )
+
+                                    if len(text_title_only) > 3 and (
+                                        text_title_only in toc_title_only
+                                        or toc_title_only in text_title_only
+                                    ):
+                                        found_in_toc = True
+                                    break
+
+                            if not found_in_toc:
+                                found_count -= 1
+                                continue
 
             # Update current structure
             if section == 0:
