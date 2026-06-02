@@ -1,3 +1,33 @@
+# =============================================================================
+# Content files — TEMPLATE ONLY
+# In a private fork with actual content, remove this entire section so that
+# source documents, per-language configs, and exceptions are tracked in git.
+# =============================================================================
+lang-store/*/**
+*.docx
+*.doc
+!example/sample-book.docx
+book_config.toml
+conf/exceptions.conf
+
+# =============================================================================
+# Generated output (DO NOT COMMIT — even in forks)
+# =============================================================================
+export/
+export_md/
+markdown_chapters/
+chapters/
+
+# Intermediate / temporary conversion artifacts
+*.wmf.backup
+*.png.tmp
+*.pdf.tmp
+*.wmf.tmp
+
+# =============================================================================
+# Standard ignores (Python, Node, IDE, OS, etc.)
+# =============================================================================
+
 # Python
 __pycache__/
 *.py[cod]
@@ -35,28 +65,11 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# Book Configuration (user-specific, copy from .example)
-book_config.toml
-conf/exceptions.conf
-
-# Generated Book Content (DO NOT COMMIT)
-export/
-export_md/
-markdown_chapters/
-chapters/
-*.docx
-*.doc
-!example/sample-book.docx
-
-# Images and Media
-*.wmf.backup
-*.png.tmp
-*.pdf.tmp
-*.wmf.tmp
-
 # IDE and Editor
 .vscode/
 .idea/
+*.iml
+*.iws
 *.swp
 *.swo
 *~
@@ -66,13 +79,20 @@ chapters/
 .claude/
 
 # OS
-.DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
 ehthumbs.db
 Thumbs.db
+.AppleDouble
+.LSOverride
+Icon
+.DocumentRevisions-V100
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
 
 # Logs
 *.log
@@ -92,7 +112,6 @@ htmlcov/
 .tox/
 coverage/
 prev/
-lang-store/*/**
 previous/
 
 # Temporary files
@@ -104,27 +123,11 @@ tmp/
 # Backup files
 *.bak
 *.backup
-*~
 
 # Documentation build
 docs/_build/
 site/
-
-# JetBrains
-.idea/
-*.iml
-*.iws
 out/
-
-# macOS
-.AppleDouble
-.LSOverride
-Icon
-.DocumentRevisions-V100
-.fseventsd
-.TemporaryItems
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
 
 # Windows
 desktop.ini

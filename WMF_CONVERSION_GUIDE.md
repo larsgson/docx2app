@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project contains 35 Windows Metafile (WMF) images that need to be converted to PNG format for web display. WMF files are not natively supported by web browsers, so the build system automatically converts them.
+Some Word documents contain Windows Metafile (WMF) images that need to be converted to PNG format for web display. WMF files are not natively supported by web browsers, so the build system automatically converts them.
 
 ## How WMF Conversion Works
 
@@ -210,14 +210,6 @@ make check-deps
 make rebuild-all
 ```
 
-## Statistics
-
-- **Total images:** 1,066
-- **WMF images:** 35 (~3% of total)
-- **PNG images:** 1,031 (97% of total)
-
-The WMF images are scattered across multiple chapters. Without conversion, they will appear as broken images in the web viewer.
-
 ## Technical Details
 
 ### WMF File Detection
@@ -257,7 +249,7 @@ The build will:
 - ⚠️ Skip WMF conversion
 - ⚠️ Show warnings about broken images
 
-The 35 WMF images will appear broken in the web viewer, but the other 1,031 images will work fine.
+Any WMF images will appear broken in the web viewer, but all other images will work fine.
 
 ## References
 

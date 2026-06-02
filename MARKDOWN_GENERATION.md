@@ -40,40 +40,19 @@ export_md/                           # Markdown output
     └── section_XX_XX.md             # Subsections
 ```
 
-## Configuration
-
-In `build_book.py`:
-
-```python
-ENABLE_MARKDOWN = True       # Enable/disable markdown generation
-MARKDOWN_DIR = "export_md"   # Output directory
-```
-
 ## Usage
 
-### Build Both Formats
-
 ```bash
-make build
+# Build a language (generates both JSON and Markdown)
+make build L=eng
 ```
 
 This generates JSON in `export/` and Markdown in `export_md/`.
 
-### Disable Markdown Generation
-
-```python
-# In build_book.py
-ENABLE_MARKDOWN = False
-```
-
 ### View Markdown Output
 
 ```bash
-# Open index
-open export_md/README.md
-
-# Or navigate to any section
-open export_md/chapter_01/section_01.md
+open export_md/eng/README.md
 ```
 
 ## Sample Output

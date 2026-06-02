@@ -1,4 +1,4 @@
-# docx2app - Document to JSON Converter
+# docx2navTree - Document to Structured JSON Converter
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -7,140 +7,147 @@ Convert Microsoft Word documents into structured JSON content suitable for web a
 
 ## Features
 
+- **Multi-language support** - Process books in multiple languages from a single repo
 - **Automatic TOC extraction** - Identifies chapters and sections from Table of Contents
 - **md2rag-compatible JSON output** - Structured format with navigation links
 - **Image extraction** - Extracts all images including WMF to PNG conversion
 - **Table processing** - Preserves complex table structures
 - **Markdown export** - Optional parallel Markdown output
-- **Smart title detection** - Extracts book title from document content
 
-## Quick Start
+## How This Repo Works
+
+This is a **template repository**. It contains the build tools but no content.
+
+To use it with your own documents, **fork it** to a private repository and add your content there. The `.gitignore` is structured so you can easily enable content tracking in your fork.
+
+### Quick Start (Template)
+
+Use the included sample document to verify the toolchain works:
 
 ```bash
-# 1. Install dependencies
 make install-deps
-
-# 2. Configure your book (optional - auto-detects from document)
-cp book_config.toml.example book_config.toml
-# Edit book_config.toml with your book's details
-
-# 3. Place your Word document
-cp your-book.docx original-book.docx
-
-# 4. Build
 make build
 ```
 
-Output is generated in `export/` (JSON) and `export_md/` (Markdown).
+### Setting Up Your Fork
+
+1. **Fork** this repo to your own (private) GitHub account
+2. **Edit `.gitignore`** — remove the first section labeled "Content files — TEMPLATE ONLY"
+3. **Add your content** to `lang-store/<lang>/` (see below)
+4. **Commit** your content files — they are now tracked in your private fork
+
+### .gitignore Structure
+
+The `.gitignore` has three clearly marked sections:
+
+| Section | Template repo | Your fork |
+|---------|--------------|-----------|
+| **Content files — TEMPLATE ONLY** | Ignored | **Remove this section** to track content |
+| **Generated output** | Ignored | Keep ignored |
+| **Standard ignores** | Ignored | Keep ignored |
+
+## Content Organization
+
+All source content lives under `lang-store/`, organized by language:
+
+```
+lang-store/
+├── eng/
+│   ├── book_config.toml       # Book metadata and settings
+│   ├── original-book.docx     # Source Word document
+│   └── exceptions.eng.conf    # TOC numbering fixes (optional)
+├── fra/
+│   ├── book_config.toml
+│   ├── source-document.docx
+│   └── cover.png
+└── rus/
+    ├── book_config.toml
+    ├── source-document.docx
+    └── exceptions.rus.conf
+```
+
+The build system auto-discovers files in each language directory.
+
+### Book Configuration
+
+Each language needs a `book_config.toml`. Copy from `book_config.toml.example`:
+
+```toml
+canonical_id = "my-book-title"
+language = "eng"
+title = "My Book Title"
+is_original = true
+pictures_location = "root"
+```
+
+If `title` is left empty, it will be extracted from the DOCX metadata or first paragraph.
+
+## Building
+
+```bash
+# Build a specific language (default: eng)
+make build L=eng
+make build L=fra
+
+# Build with images
+make all L=eng
+
+# See available languages
+make help
+```
 
 ## Output Structure
 
+Generated output goes to `export/` (JSON) and `export_md/` (Markdown) — both are gitignored.
+
 ```
 export/
-├── {lang}/                           # Language folder (e.g., "eng")
-│   └── {book_id}/                    # Book ID folder
-│       ├── _book.toml                # Book manifest
-│       ├── 01/                       # Chapter 1
-│       │   ├── intro.json            # Chapter intro
-│       │   ├── 01.json               # Section 1.1
-│       │   └── 02.json               # Section 1.2
-│       └── 02/                       # Chapter 2
-└── pictures/                         # Pictures at root level
+├── {lang}/
+│   └── {book_id}/
+│       ├── _book.toml              # Book manifest
+│       ├── 01/                     # Chapter 1
+│       │   ├── intro.json
+│       │   ├── 01.json             # Section 1.1
+│       │   └── 02.json             # Section 1.2
+│       └── 02/                     # Chapter 2
+└── pictures/
     └── {lang}/
         └── {book_id}/
-            └── 01/                   # Mirrors chapter/section numbers
+            └── 01/
                 └── 01/
                     ├── 001.png
                     └── manifest.json
 
-export_md/                            # Markdown export
+export_md/
 └── {lang}/
     ├── README.md
     ├── style.css
-    └── 01/                           # Chapter 1
+    └── 01/
         ├── intro.md
-        ├── 01.md                     # Section 1.1
-        └── 01_01.md                  # Subsection 1.1.1
+        └── 01.md
 ```
 
-## JSON Format (md2rag compatible)
+## Make Commands
 
-### Book Manifest (`_book.toml`)
-
-```toml
-canonical_id = "my-book-title"
-language = "eng"
-title = "My Book Title"
-is_original = true
+```bash
+make build           # Build JSON/Markdown for one language
+make all             # Build JSON/Markdown + extract images
+make rebuild-all     # Clean and rebuild from scratch
+make clean           # Remove generated files
+make check-deps      # Verify dependencies installed
+make verify          # Check image integrity
+make status          # Show project status
+make stats           # Display content statistics
 ```
 
-### Section Files
-
-Each section JSON file contains:
-
-```json
-{
-  "id": "my-book-title/01/01",
-  "title": "Section Title",
-  "section_id": "chapter_name/section_name",
-  "links": [
-    {"type": "previous", "target": "my-book-title/01/intro"},
-    {"type": "next", "target": "my-book-title/01/02"}
-  ],
-  "content": [
-    {"type": "paragraph", "text": "Paragraph content..."},
-    {"type": "image", "path": "pictures/01/01/001.png", "alt": "", "caption": ""},
-    {"type": "table", "rows": [{"cells": [{"text": "Cell content"}]}]}
-  ]
-}
-```
-
-## Configuration
-
-### Book Configuration (`book_config.toml`)
-
-Copy from `book_config.toml.example` and customize:
-
-```toml
-# Unique identifier for cross-references between books
-canonical_id = "my-book-title"
-
-# ISO 639-2 language code
-language = "eng"
-
-# Book title (auto-detected from document if empty)
-title = "My Book Title"
-
-# Is this the original language version?
-is_original = true
-
-# For translations only:
-# original_language = "eng"
-
-# Where to store pictures: "root", "book", or "chapter"
-pictures_location = "root"
-```
-
-If `title` is left empty, it will be extracted from:
-1. DOCX metadata (if available)
-2. First paragraph of the document
-
-### Build Configuration
-
-Edit `build_book.py` to customize paths:
-
-```python
-INPUT_DOCX = "original-book.docx"
-MARKDOWN_DIR = "export_md"
-ENABLE_MARKDOWN = True  # Set to False to disable Markdown export
-```
+Use `L=<lang>` to select language: `make build L=fra`
 
 ## System Requirements
 
 - **Python 3.8+** with python-docx
 - **ImageMagick 7+** - Image processing
 - **Ghostscript** - PDF to PNG conversion
-- **LibreOffice** - WMF to PDF conversion (for Windows Metafile images)
+- **LibreOffice** - WMF to PDF conversion (optional, for Windows Metafile images)
 
 ### Installation
 
@@ -161,29 +168,15 @@ make install-deps
 
 **Important:** Convert automatic numbering to fixed text before processing.
 
-Word/LibreOffice automatic numbering stores section numbers invisibly, causing missing sections.
+Word/LibreOffice automatic numbering stores section numbers invisibly, causing missing sections in the output.
 
 **Quick Fix:**
 - **LibreOffice:** Select All → Format → Lists → No List → Save
-- **Word:** Select All → Ctrl+Shift+N → Numbering → None → Save
-
-See [DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md) for detailed instructions.
-
-## Make Commands
-
-```bash
-make build           # Build book content to export/
-make rebuild-all     # Clean and rebuild from scratch
-make clean           # Remove generated files
-make check-deps      # Verify dependencies installed
-make verify          # Check image integrity
-make status          # Show project status
-make stats           # Display content statistics
-```
+- **Word:** Use the VBA macro in [DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md)
 
 ## Exception Handling
 
-If your document has known numbering inconsistencies, create `conf/exceptions.conf`:
+If your document has known numbering inconsistencies, create an exceptions file in your language directory (e.g., `lang-store/eng/exceptions.eng.conf`):
 
 ```
 # Format: wrong_number = correct_number
@@ -191,50 +184,13 @@ If your document has known numbering inconsistencies, create `conf/exceptions.co
 21.4.3 = 21.2.3
 ```
 
-## Troubleshooting
-
-### WMF Images Not Converting
-
-```bash
-# Check LibreOffice is accessible
-libreoffice --version
-
-# If not found on macOS
-make setup-libreoffice
-
-# Rebuild
-make rebuild-all
-```
-
-### Missing Dependencies
-
-```bash
-make check-deps
-make install-deps
-```
-
-### Build Errors
-
-```bash
-make clean
-make build
-```
-
 ## Documentation
 
-- [DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md) - Document preparation
-- [WMF_CONVERSION_GUIDE.md](WMF_CONVERSION_GUIDE.md) - Image conversion guide
-- [MARKDOWN_GENERATION.md](MARKDOWN_GENERATION.md) - Markdown output guide
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution guidelines
+- [DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md) - Preparing Word documents
+- [WMF_CONVERSION_GUIDE.md](WMF_CONVERSION_GUIDE.md) - WMF image conversion
+- [MARKDOWN_GENERATION.md](MARKDOWN_GENERATION.md) - Markdown output details
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Contributing to the template
 
 ## License
 
 GNU General Public License v3.0 (GPL-3.0) - See [LICENSE](LICENSE) file.
-
-## Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Run `make verify` to check integrity
-4. Submit a pull request
