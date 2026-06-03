@@ -17,7 +17,7 @@ BLUE := \033[0;34m
 YELLOW := \033[0;33m
 NC := \033[0m # No Color
 
-.PHONY: help all build images clean install-deps check-deps verify setup-libreoffice status stats rebuild rebuild-all
+.PHONY: help all build images clean install-deps check-deps verify setup-libreoffice status stats rebuild rebuild-all build-all all-languages
 
 # Default target
 help:
@@ -29,6 +29,8 @@ help:
 	@echo "  $(GREEN)make build$(NC)              - Generate JSON and Markdown (no image files)"
 	@echo "  $(GREEN)make images$(NC)             - Extract and process images from DOCX"
 	@echo "  $(GREEN)make clean$(NC)              - Clean generated files"
+	@echo "  $(GREEN)make build-all$(NC)          - Build JSON/Markdown for all languages"
+	@echo "  $(GREEN)make all-languages$(NC)      - Build JSON/Markdown + images for all languages"
 	@echo "  $(GREEN)make rebuild-all$(NC)        - Clean and rebuild from scratch"
 	@echo "  $(GREEN)make verify$(NC)             - Verify all images and content"
 	@echo "  $(GREEN)make check-deps$(NC)         - Check if dependencies are installed"
@@ -115,6 +117,32 @@ images:
 
 # Build everything (JSON + Markdown + images)
 all: build images
+
+# Discover available languages in lang-store/
+LANGS := $(shell ls -d lang-store/*/ 2>/dev/null | xargs -I{} basename {})
+
+# Build JSON/Markdown for all languages
+build-all:
+	@echo "$(BLUE)Building all languages: $(LANGS)$(NC)"
+	@for lang in $(LANGS); do \
+		echo ""; \
+		echo "$(BLUE)━━━ Building $$lang ━━━$(NC)"; \
+		LANG_CODE=$$lang $(PYTHON) build_book.py || exit 1; \
+	done
+	@echo ""
+	@echo "$(GREEN)✅ All languages built!$(NC)"
+
+# Build JSON/Markdown + images for all languages
+all-languages:
+	@echo "$(BLUE)Building all languages with images: $(LANGS)$(NC)"
+	@for lang in $(LANGS); do \
+		echo ""; \
+		echo "$(BLUE)━━━ Building $$lang ━━━$(NC)"; \
+		LANG_CODE=$$lang $(PYTHON) build_book.py || exit 1; \
+		LANG_CODE=$$lang $(PYTHON) process_images.py || exit 1; \
+	done
+	@echo ""
+	@echo "$(GREEN)✅ All languages built with images!$(NC)"
 
 # Clean generated files
 clean:
