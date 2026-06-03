@@ -302,7 +302,7 @@ def load_book_config(docx_path, lang=None):
 
 
 def create_book_toml(config, output_dir):
-    """Create _book.toml manifest file."""
+    """Create _book.toml manifest file (legacy, kept for backward compat)."""
     lines = [
         f'canonical_id = "{config["canonical_id"]}"',
         f'language = "{config["language"]}"',
@@ -316,6 +316,71 @@ def create_book_toml(config, output_dir):
     with open(toml_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print(f"✓ Created {toml_path}")
+
+
+def create_config_toml(config, output_dir):
+    """Create config.toml for NavTree v2 format."""
+    lang = config["language"]
+    lines = [
+        'format_version = "2.0"',
+        f'project_name = "{config["title"]}"',
+        "",
+        f'default_language = "{lang}"',
+        f'languages = ["{lang}"]',
+        "",
+        "[pictures]",
+        'local_dir = "pictures"',
+    ]
+    toml_path = os.path.join(output_dir, "config.toml")
+    with open(toml_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"✓ Created {toml_path}")
+
+
+def _toml_escape(s):
+    """Escape a string for TOML double-quoted values."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def write_index_toml(folder_path, content_id, title, section_id, lang=None):
+    """Write index.toml for a NavTree v2 node."""
+    lines = [
+        f'content_id = "{_toml_escape(content_id)}"',
+        f'title = "{_toml_escape(clean_title(title))}"',
+        f'section_id = "{_toml_escape(section_id)}"',
+    ]
+    if lang:
+        lines.extend([
+            "",
+            f"[locales.{lang}]",
+            f'title = "{_toml_escape(clean_title(title))}"',
+        ])
+    toml_path = os.path.join(folder_path, "index.toml")
+    with open(toml_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def write_content_json(folder_path, content_blocks):
+    """Write content.json for a NavTree v2 node (ContentBlock[] only)."""
+    json_path = os.path.join(folder_path, "content.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump({"content": content_blocks}, f, indent=2)
+
+
+def write_search_positions(output_dir, search_positions, title_map, chapters):
+    """Write search-positions.json for NavTree v2."""
+    positions = {}
+    for content_id, entries in search_positions.items():
+        positions[content_id] = []
+        for entry in entries:
+            positions[content_id].append({
+                "tree_id": entry["tree_id"],
+                "breadcrumb": entry["breadcrumb"],
+            })
+    json_path = os.path.join(output_dir, "search-positions.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(positions, f, indent=2)
+    print(f"✓ Created {json_path} ({len(positions)} entries)")
 
 
 def build_document_order(chapters, title_map):
@@ -2314,38 +2379,14 @@ def build_book_json():
 
         title_map[key] = title
 
-    # Build document order for prev/next links
-    print("\nBuilding document order for navigation links...")
+    # Build document order (still needed for search-positions breadcrumbs)
+    print("\nBuilding document order...")
     doc_order = build_document_order(chapters, title_map)
     print(f"✓ {len(doc_order)} sections in document order")
 
-    # Create lookup for prev/next by position
-    # doc_order entries: (chapter_num, section_num, subsection_num, title, dir_name, file_name,
-    #                     chapter_slug, section_slug, subsection_slug)
     book_id = config["canonical_id"]
 
-    def get_prev_next_ids(position):
-        """Get prev and next document IDs for a given position in doc_order."""
-        prev_id = None
-        next_id = None
-
-        if position > 0:
-            prev_entry = doc_order[position - 1]
-            prev_id = f"{book_id}/{prev_entry[4]}/{prev_entry[5]}"
-
-        if position < len(doc_order) - 1:
-            next_entry = doc_order[position + 1]
-            next_id = f"{book_id}/{next_entry[4]}/{next_entry[5]}"
-
-        return prev_id, next_id
-
-    # Create position lookup
-    position_lookup = {}
-    for i, entry in enumerate(doc_order):
-        chapter_num, section_num, subsection_num = entry[0], entry[1], entry[2]
-        position_lookup[(chapter_num, section_num, subsection_num)] = i
-
-    # Set up output directories with new structure: export/{lang}/{book_id}/
+    # Set up output directories: export/{lang}/{book_id}/
     export_root = "export"
     lang = config["language"]
     json_book_dir = os.path.join(export_root, lang, book_id)
@@ -2372,12 +2413,56 @@ def build_book_json():
 
     # Track images for markdown and image manifest
     image_paths = {}
-    image_manifest = []  # For image_manifest.json (used by process_images.py)
+    image_manifest = []
 
-    # Process each chapter
-    print("\nProcessing chapters...")
+    # Track search positions for search-positions.json
+    search_positions = {}
+
+    def _collect_content_blocks(elements_list):
+        """Convert raw elements to ContentBlock[] and collect image manifest entries."""
+        content = []
+        for elem_type, elem in elements_list:
+            if elem_type == "paragraph":
+                content.append(extract_paragraph_json(elem))
+            elif elem_type == "table":
+                content.append(extract_table_json(elem))
+            elif elem_type == "table_cell":
+                content.append(extract_table_cell_json(elem))
+            elif elem_type == "image":
+                if isinstance(elem, tuple) and len(elem) >= 2:
+                    img_idx = elem[1]
+                    alt_text = elem[2] if len(elem) > 2 else ""
+                    caption_text = elem[3] if len(elem) > 3 else ""
+                    r_id = elem[4] if len(elem) > 4 else ""
+                    content_type_str = elem[5] if len(elem) > 5 else ""
+
+                    image_filename = f"{img_idx:03d}.png"
+                    image_rel_path = f"pictures/{_current_section_path}/{image_filename}"
+                    content.append(
+                        extract_image_json(image_rel_path, alt_text, caption_text)
+                    )
+
+                    image_manifest.append({
+                        "image_index": img_idx,
+                        "rId": r_id,
+                        "content_type": content_type_str,
+                        "section_path": _current_section_path,
+                        "filename": image_filename,
+                        "alt": alt_text,
+                        "caption": caption_text,
+                        "chapter_dir": _current_chapter_dir,
+                    })
+
+                    if ENABLE_MARKDOWN:
+                        md_img_path = f"pictures/{image_filename}"
+                        if _current_md_key not in image_paths:
+                            image_paths[_current_md_key] = []
+                        image_paths[_current_md_key].append(md_img_path)
+        return content
+
+    # Process each chapter — NavTree v2 output
+    print("\nProcessing chapters (NavTree v2 format)...")
     for chapter_num in sorted(chapters.keys()):
-        # Get chapter title and create slugified directory name
         chapter_key = (chapter_num, "chapter")
         chapter_title = title_map.get(chapter_key, f"Chapter {chapter_num}")
         chapter_slug = slugify(chapter_title)
@@ -2385,190 +2470,94 @@ def build_book_json():
 
         print(f"\n  Chapter {chapter_num} ({chapter_dir_name}):")
 
+        # V2: chapter folder is export/{lang}/{book_id}/NN/
         chapter_dir = os.path.join(json_book_dir, chapter_dir_name)
         os.makedirs(chapter_dir, exist_ok=True)
 
         md_chapter_dir = None
         if ENABLE_MARKDOWN:
-            md_chapter_dir = os.path.join(md_lang_dir, f"{chapter_num:02d}")
+            md_chapter_dir = os.path.join(md_lang_dir, chapter_dir_name)
             os.makedirs(md_chapter_dir, exist_ok=True)
 
         chapter_data = chapters[chapter_num]
 
-        # Build intro section (chapter-level elements)
+        # Chapter intro → chapter_dir/content.json + chapter_dir/index.toml
+        _current_section_path = f"{chapter_dir_name}"
+        _current_chapter_dir = chapter_dir_name
+        _current_md_key = (chapter_num, None, None)
+
         intro_content = []
-        # Section path for intro: NN/intro
-        intro_section_path = f"{chapter_num:02d}/intro"
-
         if chapter_num in chapter_elements:
-            for elem_type, elem in chapter_elements[chapter_num]:
-                if elem_type == "paragraph":
-                    intro_content.append(extract_paragraph_json(elem))
-                elif elem_type == "table":
-                    intro_content.append(extract_table_json(elem))
-                elif elem_type == "table_cell":
-                    intro_content.append(extract_table_cell_json(elem))
-                elif elem_type == "image":
-                    # elem is a tuple: (image_part, image_index, alt, caption, rId, content_type)
-                    if isinstance(elem, tuple) and len(elem) >= 2:
-                        img_idx = elem[1]
-                        alt_text = elem[2] if len(elem) > 2 else ""
-                        caption_text = elem[3] if len(elem) > 3 else ""
-                        r_id = elem[4] if len(elem) > 4 else ""
-                        content_type = elem[5] if len(elem) > 5 else ""
+            intro_content = _collect_content_blocks(chapter_elements[chapter_num])
 
-                        # Compute deterministic image path (no file I/O)
-                        image_filename = f"{img_idx:03d}.png"
-                        image_rel_path = (
-                            f"pictures/{intro_section_path}/{image_filename}"
-                        )
-                        intro_content.append(
-                            extract_image_json(image_rel_path, alt_text, caption_text)
-                        )
+        content_id = slugify(chapter_title)
+        section_id = build_section_id(chapter_slug)
+        tree_id = chapter_dir_name
 
-                        # Add to image manifest for process_images.py
-                        image_manifest.append(
-                            {
-                                "image_index": img_idx,
-                                "rId": r_id,
-                                "content_type": content_type,
-                                "section_path": intro_section_path,
-                                "filename": image_filename,
-                                "alt": alt_text,
-                                "caption": caption_text,
-                                "chapter_dir": f"{chapter_num:02d}",
-                            }
-                        )
+        write_index_toml(chapter_dir, content_id, chapter_title, section_id, lang)
 
-                        # Track markdown image path
-                        if ENABLE_MARKDOWN:
-                            md_img_path = f"pictures/{image_filename}"
-                            if (chapter_num, None, None) not in image_paths:
-                                image_paths[(chapter_num, None, None)] = []
-                            image_paths[(chapter_num, None, None)].append(md_img_path)
-
-        # Save intro with md2rag metadata
         if intro_content:
-            intro_file_name = "intro"
-            position = position_lookup.get((chapter_num, 0, None), 0)
-            prev_id, next_id = get_prev_next_ids(position)
-            # Human-readable section_id
-            section_id = build_section_id(chapter_slug)
+            write_content_json(chapter_dir, intro_content)
+            print(f"    ✓ {chapter_dir_name}/content.json ({len(intro_content)} items)")
 
-            intro_json = build_section_json(
-                intro_content,
-                book_id,
-                chapter_dir_name,
-                intro_file_name,
-                chapter_title,
-                section_id,
-                prev_id,
-                next_id,
-            )
+        # Search positions
+        search_positions[content_id] = [{
+            "tree_id": tree_id,
+            "breadcrumb": [clean_title(chapter_title)],
+        }]
 
-            intro_file = os.path.join(chapter_dir, f"{intro_file_name}.json")
-            with open(intro_file, "w", encoding="utf-8") as f:
-                json.dump(intro_json, f, indent=2)
-            print(f"    ✓ {intro_file_name}.json ({len(intro_content)} items)")
+        # Markdown export (legacy format)
+        if ENABLE_MARKDOWN and md_chapter_dir and chapter_num in chapter_elements:
+            md_file = os.path.join(md_chapter_dir, "intro.md")
+            md_content = list(chapter_elements[chapter_num])
+            key = (chapter_num, None, None)
+            if key in image_paths:
+                for img_path in image_paths[key]:
+                    md_content.append(("image", img_path))
+            save_markdown_file(md_file, md_content, chapter_num)
+            print("    ✓ intro.md")
 
-            if ENABLE_MARKDOWN and md_chapter_dir and chapter_num in chapter_elements:
-                md_file = os.path.join(md_chapter_dir, "intro.md")
-                md_content = list(chapter_elements[chapter_num])
-                key = (chapter_num, None, None)
-                if key in image_paths:
-                    for img_path in image_paths[key]:
-                        md_content.append(("image", img_path))
-                save_markdown_file(md_file, md_content, chapter_num)
-                print("    ✓ intro.md")
-
-        # Process sections
+        # Process sections → chapter_dir/SS/content.json
         for section_num in sorted(chapter_data["sections"].keys()):
             section_data = chapter_data["sections"][section_num]
 
-            # Get section title and create slugified file name
             section_key = (chapter_num, section_num)
             section_title = title_map.get(section_key, f"{chapter_num}.{section_num}")
             section_slug = slugify(section_title)
-            section_file_name = f"{section_num:02d}"
-            # Section path for pictures: NN/SS
-            section_path = f"{chapter_num:02d}/{section_num:02d}"
+            section_dir_name = f"{section_num:02d}"
+            section_path = f"{chapter_dir_name}/{section_dir_name}"
 
-            # Build section content
+            # V2: section folder
+            section_dir = os.path.join(chapter_dir, section_dir_name)
+            os.makedirs(section_dir, exist_ok=True)
+
+            _current_section_path = section_path
+            _current_md_key = (chapter_num, section_num, None)
+
             section_content = []
-
             key = (chapter_num, section_num)
             if key in section_elements:
-                for elem_type, elem in section_elements[key]:
-                    if elem_type == "paragraph":
-                        section_content.append(extract_paragraph_json(elem))
-                    elif elem_type == "table":
-                        section_content.append(extract_table_json(elem))
-                    elif elem_type == "table_cell":
-                        section_content.append(extract_table_cell_json(elem))
-                    elif elem_type == "image":
-                        if isinstance(elem, tuple) and len(elem) >= 2:
-                            img_idx = elem[1]
-                            alt_text = elem[2] if len(elem) > 2 else ""
-                            caption_text = elem[3] if len(elem) > 3 else ""
-                            r_id = elem[4] if len(elem) > 4 else ""
-                            content_type = elem[5] if len(elem) > 5 else ""
+                section_content = _collect_content_blocks(section_elements[key])
 
-                            image_filename = f"{img_idx:03d}.png"
-                            image_rel_path = f"pictures/{section_path}/{image_filename}"
-                            section_content.append(
-                                extract_image_json(
-                                    image_rel_path, alt_text, caption_text
-                                )
-                            )
+            content_id = slugify(section_title)
+            section_id_str = build_section_id(chapter_slug, section_slug)
 
-                            image_manifest.append(
-                                {
-                                    "image_index": img_idx,
-                                    "rId": r_id,
-                                    "content_type": content_type,
-                                    "section_path": section_path,
-                                    "filename": image_filename,
-                                    "alt": alt_text,
-                                    "caption": caption_text,
-                                    "chapter_dir": f"{chapter_num:02d}",
-                                }
-                            )
+            write_index_toml(section_dir, content_id, section_title, section_id_str, lang)
 
-                            if ENABLE_MARKDOWN:
-                                md_img_path = f"pictures/{image_filename}"
-                                md_key = (chapter_num, section_num, None)
-                                if md_key not in image_paths:
-                                    image_paths[md_key] = []
-                                image_paths[md_key].append(md_img_path)
+            if section_content:
+                write_content_json(section_dir, section_content)
+                print(f"    ✓ {section_path}/content.json ({len(section_content)} items)")
 
-            # Save section with md2rag metadata
-            position = position_lookup.get((chapter_num, section_num, None), 0)
-            prev_id, next_id = get_prev_next_ids(position)
-            # Human-readable section_id
-            section_id = build_section_id(chapter_slug, section_slug)
+            search_positions[content_id] = [{
+                "tree_id": section_path,
+                "breadcrumb": [clean_title(chapter_title), clean_title(section_title)],
+            }]
 
-            section_json = build_section_json(
-                section_content,
-                book_id,
-                chapter_dir_name,
-                section_file_name,
-                section_title,
-                section_id,
-                prev_id,
-                next_id,
-            )
-
-            section_file = os.path.join(chapter_dir, f"{section_file_name}.json")
-            with open(section_file, "w", encoding="utf-8") as f:
-                json.dump(section_json, f, indent=2)
-            print(f"    ✓ {section_file_name}.json ({len(section_content)} items)")
-
+            # Markdown export (legacy format)
             if ENABLE_MARKDOWN and md_chapter_dir:
                 key = (chapter_num, section_num)
                 if key in section_elements:
-                    md_file = os.path.join(
-                        md_chapter_dir, f"{section_num:02d}.md"
-                    )
+                    md_file = os.path.join(md_chapter_dir, f"{section_num:02d}.md")
                     md_content = list(section_elements[key])
                     img_key = (chapter_num, section_num, None)
                     if img_key in image_paths:
@@ -2577,105 +2566,51 @@ def build_book_json():
                     save_markdown_file(md_file, md_content, chapter_num, section_num)
                     print(f"    ✓ {section_num:02d}.md")
 
-            # Process subsections
+            # Process subsections → section_dir/SS/content.json
             if section_data["subsections"]:
                 for subsection_num in sorted(section_data["subsections"].keys()):
-                    # Get subsection title and create slugified file name
                     subsection_key = (chapter_num, section_num, subsection_num)
                     subsection_title = title_map.get(
                         subsection_key,
                         f"{chapter_num}.{section_num}.{subsection_num}",
                     )
                     subsection_slug = slugify(subsection_title)
-                    subsection_file_name = (
-                        f"{section_num:02d}_{subsection_num:02d}"
-                    )
-                    # Section path for pictures: NN/SS_SS
-                    subsection_path = f"{chapter_num:02d}/{section_num:02d}_{subsection_num:02d}"
+                    subsection_dir_name = f"{subsection_num:02d}"
+                    subsection_path = f"{section_path}/{subsection_dir_name}"
+
+                    # V2: subsection folder
+                    subsection_dir = os.path.join(section_dir, subsection_dir_name)
+                    os.makedirs(subsection_dir, exist_ok=True)
+
+                    _current_section_path = subsection_path
+                    _current_md_key = (chapter_num, section_num, subsection_num)
 
                     subsection_content = []
-
                     key = (chapter_num, section_num, subsection_num)
                     if key in subsection_elements:
-                        for elem_type, elem in subsection_elements[key]:
-                            if elem_type == "paragraph":
-                                subsection_content.append(extract_paragraph_json(elem))
-                            elif elem_type == "table":
-                                subsection_content.append(extract_table_json(elem))
-                            elif elem_type == "table_cell":
-                                subsection_content.append(extract_table_cell_json(elem))
-                            elif elem_type == "image":
-                                if isinstance(elem, tuple) and len(elem) >= 2:
-                                    img_idx = elem[1]
-                                    alt_text = elem[2] if len(elem) > 2 else ""
-                                    caption_text = elem[3] if len(elem) > 3 else ""
-                                    r_id = elem[4] if len(elem) > 4 else ""
-                                    content_type = elem[5] if len(elem) > 5 else ""
+                        subsection_content = _collect_content_blocks(subsection_elements[key])
 
-                                    image_filename = f"{img_idx:03d}.png"
-                                    image_rel_path = (
-                                        f"pictures/{subsection_path}/{image_filename}"
-                                    )
-                                    subsection_content.append(
-                                        extract_image_json(
-                                            image_rel_path, alt_text, caption_text
-                                        )
-                                    )
-
-                                    image_manifest.append(
-                                        {
-                                            "image_index": img_idx,
-                                            "rId": r_id,
-                                            "content_type": content_type,
-                                            "section_path": subsection_path,
-                                            "filename": image_filename,
-                                            "alt": alt_text,
-                                            "caption": caption_text,
-                                            "chapter_dir": f"{chapter_num:02d}",
-                                        }
-                                    )
-
-                                    if ENABLE_MARKDOWN:
-                                        md_img_path = f"pictures/{image_filename}"
-                                        md_key = (
-                                            chapter_num,
-                                            section_num,
-                                            subsection_num,
-                                        )
-                                        if md_key not in image_paths:
-                                            image_paths[md_key] = []
-                                        image_paths[md_key].append(md_img_path)
-
-                    # Save subsection with md2rag metadata
-                    position = position_lookup.get(
-                        (chapter_num, section_num, subsection_num), 0
-                    )
-                    prev_id, next_id = get_prev_next_ids(position)
-                    # Human-readable section_id
+                    content_id = slugify(subsection_title)
                     sub_section_id = build_section_id(
                         chapter_slug, section_slug, subsection_slug
                     )
 
-                    subsection_json = build_section_json(
-                        subsection_content,
-                        book_id,
-                        chapter_dir_name,
-                        subsection_file_name,
-                        subsection_title,
-                        sub_section_id,
-                        prev_id,
-                        next_id,
-                    )
+                    write_index_toml(subsection_dir, content_id, subsection_title, sub_section_id, lang)
 
-                    subsection_file = os.path.join(
-                        chapter_dir, f"{subsection_file_name}.json"
-                    )
-                    with open(subsection_file, "w", encoding="utf-8") as f:
-                        json.dump(subsection_json, f, indent=2)
-                    print(
-                        f"      ✓ {subsection_file_name}.json ({len(subsection_content)} items)"
-                    )
+                    if subsection_content:
+                        write_content_json(subsection_dir, subsection_content)
+                        print(f"      ✓ {subsection_path}/content.json ({len(subsection_content)} items)")
 
+                    search_positions[content_id] = [{
+                        "tree_id": subsection_path,
+                        "breadcrumb": [
+                            clean_title(chapter_title),
+                            clean_title(section_title),
+                            clean_title(subsection_title),
+                        ],
+                    }]
+
+                    # Markdown export (legacy format)
                     if ENABLE_MARKDOWN and md_chapter_dir:
                         key = (chapter_num, section_num, subsection_num)
                         if key in subsection_elements:
@@ -2689,23 +2624,21 @@ def build_book_json():
                                 for img_path in image_paths[img_key]:
                                     md_content.append(("image", img_path))
                             save_markdown_file(
-                                md_file,
-                                md_content,
-                                chapter_num,
-                                section_num,
-                                subsection_num,
+                                md_file, md_content,
+                                chapter_num, section_num, subsection_num,
                             )
-                            print(
-                                f"      ✓ {section_num:02d}_{subsection_num:02d}.md"
-                            )
+                            print(f"      ✓ {section_num:02d}_{subsection_num:02d}.md")
 
-    # Create markdown index and CSS
+    # Create markdown index and CSS (legacy format)
     if ENABLE_MARKDOWN:
         create_markdown_index(chapters, md_lang_dir)
 
-    # Create _book.toml manifest
-    print("\nCreating book manifest...")
-    create_book_toml(config, json_book_dir)
+    # Create config.toml (NavTree v2)
+    print("\nCreating NavTree v2 metadata...")
+    create_config_toml(config, json_book_dir)
+
+    # Write search-positions.json (NavTree v2)
+    write_search_positions(json_book_dir, search_positions, title_map, chapters)
 
     # Write image_manifest.json for process_images.py
     if image_manifest:
@@ -2715,10 +2648,10 @@ def build_book_json():
         print(f"\n✓ Image manifest: {manifest_path} ({len(image_manifest)} images)")
 
     print("\n" + "=" * 80)
-    print("✓ Book JSON (md2rag format) and Markdown generation complete!")
-    print(f"✓ JSON files: {json_book_dir}/")
+    print("✓ NavTree v2 generation complete!")
+    print(f"✓ Content:  {json_book_dir}/")
     if ENABLE_MARKDOWN:
-        print(f"✓ Markdown files: {MARKDOWN_DIR}/")
+        print(f"✓ Markdown: {MARKDOWN_DIR}/")
     print(f"✓ Run 'make images' to extract and process image files")
     print("=" * 80)
 

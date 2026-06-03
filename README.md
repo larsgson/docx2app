@@ -9,7 +9,7 @@ Convert Microsoft Word documents into structured JSON content suitable for web a
 
 - **Multi-language support** - Process books in multiple languages from a single repo
 - **Automatic TOC extraction** - Identifies chapters and sections from Table of Contents
-- **md2rag-compatible JSON output** - Structured format with navigation links
+- **NavTree v2 output** - Structured JSON with per-node metadata (index.toml)
 - **Image extraction** - Extracts all images including WMF to PNG conversion
 - **Table processing** - Preserves complex table structures
 - **Markdown export** - Optional parallel Markdown output
@@ -96,29 +96,40 @@ make all L=eng
 make help
 ```
 
-## Output Structure
+## Output Structure (NavTree v2)
 
 Generated output goes to `export/` (JSON) and `export_md/` (Markdown) — both are gitignored.
+
+The folder hierarchy IS the navigation tree. Each section gets its own folder
+with `index.toml` (metadata) and `content.json` (content blocks).
 
 ```
 export/
 ├── {lang}/
 │   └── {book_id}/
-│       ├── _book.toml              # Book manifest
-│       ├── 01/                     # Chapter 1
-│       │   ├── intro.json
-│       │   ├── 01.json             # Section 1.1
-│       │   └── 02.json             # Section 1.2
-│       └── 02/                     # Chapter 2
+│       ├── config.toml                 # Global settings
+│       ├── search-positions.json       # content_id → tree positions
+│       ├── 01/                         # Chapter 1
+│       │   ├── index.toml              # Chapter metadata
+│       │   ├── content.json            # Chapter intro content
+│       │   ├── 01/                     # Section 1.1
+│       │   │   ├── index.toml
+│       │   │   ├── content.json
+│       │   │   └── 01/                 # Subsection 1.1.1
+│       │   │       ├── index.toml
+│       │   │       └── content.json
+│       │   └── 02/                     # Section 1.2
+│       │       ├── index.toml
+│       │       └── content.json
+│       └── 02/                         # Chapter 2
 └── pictures/
     └── {lang}/
         └── {book_id}/
             └── 01/
                 └── 01/
-                    ├── 001.png
-                    └── manifest.json
+                    └── 001.png
 
-export_md/
+export_md/                              # Parallel Markdown export
 └── {lang}/
     ├── README.md
     ├── style.css
@@ -126,6 +137,8 @@ export_md/
         ├── intro.md
         └── 01.md
 ```
+
+See [docs/navtree-v2-format.md](docs/navtree-v2-format.md) for the full format specification.
 
 ## Make Commands
 
@@ -186,6 +199,7 @@ If your document has known numbering inconsistencies, create an exceptions file 
 
 ## Documentation
 
+- [docs/navtree-v2-format.md](docs/navtree-v2-format.md) - Output format specification
 - [DOCUMENT_PREPARATION_GUIDE.md](DOCUMENT_PREPARATION_GUIDE.md) - Preparing Word documents
 - [WMF_CONVERSION_GUIDE.md](WMF_CONVERSION_GUIDE.md) - WMF image conversion
 - [MARKDOWN_GENERATION.md](MARKDOWN_GENERATION.md) - Markdown output details

@@ -138,12 +138,12 @@ make check-deps
 
 1. Find a WMF file:
 ```bash
-find book_content_json -name "*.png" -exec sh -c 'head -c 4 "$1" | xxd -p | grep -q "^d7cdc69a" && echo "$1"' _ {} \; | head -1
+find export/pictures -name "*.png" -exec sh -c 'head -c 4 "$1" | xxd -p | grep -q "^d7cdc69a" && echo "$1"' _ {} \; | head -1
 ```
 
 2. Copy it with .wmf extension:
 ```bash
-cp book_content_json/chapter_XX/pictures/image_XXXX.png test.wmf
+cp export/pictures/eng/*/01/01/001.png test.wmf
 ```
 
 3. Try converting:

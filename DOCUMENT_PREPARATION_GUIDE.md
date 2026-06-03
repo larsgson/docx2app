@@ -424,7 +424,7 @@ Before running the full conversion system:
    
 2. **Check the JSON output**
    ```bash
-   cat export/book_content_json/01_*/01_*.json | head -20
+   cat export/eng/*/01/01/content.json | head -20
    ```
 
 3. **Expected results**

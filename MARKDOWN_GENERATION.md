@@ -7,7 +7,7 @@ The build system generates **both JSON and Markdown** output simultaneously from
 ## Features
 
 ### Dual Output Format
-- **JSON**: Structured md2rag-compatible format for applications
+- **JSON**: NavTree v2 format with `content.json` + `index.toml` per node
 - **Markdown**: Human-readable format for documentation and editing
 
 ### Markdown Capabilities
@@ -20,24 +20,26 @@ The build system generates **both JSON and Markdown** output simultaneously from
 ## Output Structure
 
 ```
-export/                              # JSON output
+export/                              # NavTree v2 JSON output
 ├── {lang}/
 │   └── {book_id}/
-│       ├── _book.toml
-│       └── XX_chapter_name/
-│           └── ...
-└── pictures/
-    └── {lang}/
-        └── {book_id}/
-            └── ...
+│       ├── config.toml
+│       ├── search-positions.json
+│       └── 01/                      # Each node = folder
+│           ├── index.toml
+│           ├── content.json
+│           └── 01/
+│               ├── index.toml
+│               └── content.json
 
 export_md/                           # Markdown output
-├── README.md                        # Main index with chapter links
-├── style.css                        # Styling
-└── chapter_XX/
-    ├── intro.md                     # Chapter introduction
-    ├── section_XX.md                # Main sections
-    └── section_XX_XX.md             # Subsections
+├── {lang}/
+│   ├── README.md                    # Main index with chapter links
+│   ├── style.css                    # Styling
+│   └── 01/
+│       ├── intro.md                 # Chapter introduction
+│       ├── 01.md                    # Section 1.1
+│       └── 01_01.md                 # Subsection 1.1.1
 ```
 
 ## Usage
